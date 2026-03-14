@@ -32,22 +32,27 @@ export class PointPairSchnorrP256 {
         const Z2Z2 = (Z2 * Z2) % p;
         const U1 = (X1 * Z2Z2) % p;
         const U2 = (X2 * Z1Z1) % p;
-        const S1 = (Y1 * Z2 * Z2Z2) % p; // ★ mod×1
-        const S2 = (Y2 * Z1 * Z1Z1) % p; // ★ mod×1
+        // S1 = Y1 * Z2^3, S2 = Y2 * Z1^3
+        const Z2_cu = (Z2Z2 * Z2) % p;
+        const Z1_cu = (Z1Z1 * Z1) % p;
+        const S1 = (Y1 * Z2_cu) % p;
+        const S2 = (Y2 * Z1_cu) % p;
         const H = (U2 - U1 + p) % p;
-        const R = (S2 - S1 + p) % p;
+        const RR = (S2 - S1 + p) % p;
         if (H === 0n) {
-            if (R === 0n)
+            if (RR === 0n)
                 return this.doubleJacobian(P1);
             return [0n, 1n, 0n];
         }
         const HH = (H * H) % p;
-        const HHH = (H * HH) % p;
+        const HHH = (HH * H) % p;
         const U1HH = (U1 * HH) % p;
-        const X3 = (R * R - HHH - 2n * U1HH + 4n * p) % p; // ★ mod×1
-        const Y3 = (R * (U1HH - X3 + p) - S1 * HHH + 2n * p * p) % p; // ★ mod×1
-        const Z3 = (H * Z1 * Z2) % p; // ★ mod×1
-        return [X3, Y3, Z3];
+        const X3 = (RR * RR - HHH - 2n * U1HH) % p;
+        const X3n = (X3 + p) % p; // normalize once
+        const Y3 = (RR * (U1HH - X3n + p) - S1 * HHH) % p;
+        const Z3 = (H * Z1) % p;
+        const Z3n = (Z3 * Z2) % p;
+        return [X3n, (Y3 + p) % p, Z3n];
     }
     // ─── ヤコビアン点2倍算 ───────────────────────────────────────────────────
     // a = P-3 専用最適化: M = 3(X+Z²)(X-Z²)
@@ -86,7 +91,29 @@ export class PointPairSchnorrP256 {
         return this.toAffine(this.scalarMultGJac(k));
     }
     inv(a, m) {
-        return this.modPow(a, m - 2n, m);
+        a %= m;
+        if (a < 0n)
+            a += m;
+        if (a === 0n)
+            throw new Error("inv: a == 0");
+        let t = 0n, newT = 1n;
+        let r = m, newR = a;
+        while (newR !== 0n) {
+            const q = r / newR;
+            // (t, newT) = (newT, t - q*newT)
+            const t0 = t;
+            t = newT;
+            newT = t0 - q * newT;
+            // (r, newR) = (newR, r - q*newR)
+            const r0 = r;
+            r = newR;
+            newR = r0 - q * newR;
+        }
+        if (r !== 1n)
+            throw new Error("inv: not invertible");
+        if (t < 0n)
+            t += m;
+        return t;
     }
     isPointOnCurve(Pt) {
         const [x, y] = Pt;
@@ -102,27 +129,17 @@ export class PointPairSchnorrP256 {
             p;
         return (y * y) % p === rhs;
     }
-    modPow(base, exp, mod) {
-        const bits = 256;
-        let result = 1n;
-        base = ((base % mod) + mod) % mod;
-        for (let i = bits - 1; i >= 0; i--) {
-            result = (result * result) % mod;
-            const bit = (exp >> BigInt(i)) & 1n;
-            const tmp = (result * base) % mod;
-            result = result + bit * (tmp - result);
-            result = ((result % mod) + mod) % mod;
-        }
-        return result;
-    }
     signBigint(message, privKey) {
-        const k = this.generateK(this.BigintToBytes(message), this.BigintToBytes(privKey));
-        const Rj = this.scalarMultGJac(k);
-        // Rのアフィンが必要（eのハッシュ入力に使う）→ 一旦Rだけ変換
-        const Rtemp = this.toAffine(Rj);
-        const e = this.bytesToBigInt(this.sha256(this.concat(this.BigintToBytes(Rtemp[0]), this.BigintToBytes(Rtemp[1]), this.BigintToBytes(message)))) % this.N;
-        const s = (k + privKey + e) % this.N;
-        const R = this.toAffine(Rj);
+        const mB = this.BigintToBytes(message);
+        const xB = this.BigintToBytes(privKey);
+        const k = this.generateK(mB, xB);
+        const R = this.scalarMultG(k);
+        const RxB = this.BigintToBytes(R[0]);
+        const RyB = this.BigintToBytes(R[1]);
+        const e = this.bytesToBigInt(this.sha256(this.concat(RxB, RyB, mB))) % this.N;
+        if (e === 0n)
+            throw new Error("e==0, retry");
+        const s = ((k + privKey) * this.inv(e, this.N)) % this.N;
         return [R, s];
     }
     sign(message, privKey) {
@@ -145,27 +162,53 @@ export class PointPairSchnorrP256 {
             this.bytesToBigInt(signature[0]),
             this.bytesToBigInt(signature[1]),
         ];
-        const s = this.bytesToBigInt(signature[2]);
         if (!this.isPointOnCurve(pubKeyBigint))
             return false;
         if (!this.isPointOnCurve(R))
             return false;
+        const e = this.bytesToBigInt(this.sha256(this.concat(this.BigintToBytes(R[0]), this.BigintToBytes(R[1]), message))) % this.N;
+        const s = (this.bytesToBigInt(signature[2]) * e) % this.N;
         const sg = this.scalarMultGJac(s);
-        const e = this.bytesToBigInt(this.sha256(new Uint8Array([
-            ...this.BigintToBytes(R[0]),
-            ...this.BigintToBytes(R[1]),
-            ...this.BigintToBytes(messageBigint),
-        ]))) % this.N;
-        const eG = this.scalarMultGJac(e);
         const Rj = [R[0], R[1], 1n];
         const Yj = [pubKeyBigint[0], pubKeyBigint[1], 1n];
-        const right = this.addPointsJacobian(this.addPointsJacobian(Rj, Yj), eG);
-        const Z1sq = (sg[2] * sg[2]) % this.P;
-        const Z2sq = (right[2] * right[2]) % this.P;
-        const Z1cu = (Z1sq * sg[2]) % this.P;
-        const Z2cu = (Z2sq * right[2]) % this.P;
-        return ((sg[0] * Z2sq) % this.P === (right[0] * Z1sq) % this.P &&
-            (sg[1] * Z2cu) % this.P === (right[1] * Z1cu) % this.P);
+        const right = this.addPointsJacobian(Rj, Yj);
+        const left = sg;
+        return this.equalsJacobian(left, right);
+    }
+    equalsJacobian(A, B) {
+        const [X1, Y1, Z1] = A;
+        const [X2, Y2, Z2] = B;
+        if (Z1 === 0n || Z2 === 0n)
+            return Z1 === 0n && Z2 === 0n;
+        const p = this.P;
+        // fast path: if both affine (Z=1), compare directly
+        if (Z1 === 1n && Z2 === 1n) {
+            return X1 % p === X2 % p && Y1 % p === Y2 % p;
+        }
+        // fast path: if one is affine
+        if (Z1 === 1n) {
+            const Z2Z2 = (Z2 * Z2) % p;
+            const U1 = (X1 * Z2Z2) % p; // X1はAffineのxそのもの
+            const U2 = X2 % p; // X2は比較対象のJacobian X
+            if (U1 !== U2)
+                return false;
+            const Z2Z2Z2 = (Z2Z2 * Z2) % p;
+            const S1 = (Y1 * Z2Z2Z2) % p;
+            const S2 = Y2 % p;
+            return S1 === S2;
+        }
+        // generic path (your original)
+        const Z1Z1 = (Z1 * Z1) % p;
+        const Z2Z2 = (Z2 * Z2) % p;
+        const U1 = (X1 * Z2Z2) % p;
+        const U2 = (X2 * Z1Z1) % p;
+        if (U1 !== U2)
+            return false;
+        const Z1Z1Z1 = (Z1Z1 * Z1) % p;
+        const Z2Z2Z2 = (Z2Z2 * Z2) % p;
+        const S1 = (Y1 * Z2Z2Z2) % p;
+        const S2 = (Y2 * Z1Z1Z1) % p;
+        return S1 === S2;
     }
     generateKeyPair() {
         const privKey = this.getRandomBigInt(this.N);
@@ -351,136 +394,118 @@ export class PointPairSchnorrP256 {
 // ============================================================
 //  統計ベンチマーク: min / max / mean / median / p95 / p99 / stddev
 // ============================================================
-function stats(samples) {
-    const sorted = [...samples].sort((a, b) => a - b);
-    const n = sorted.length;
-    const mean = samples.reduce((s, v) => s + v, 0) / n;
-    const variance = samples.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
-    const stddev = Math.sqrt(variance);
-    const pct = (p) => {
-        const idx = Math.ceil((p / 100) * n) - 1;
-        return sorted[Math.max(0, Math.min(n - 1, idx))];
-    };
-    return {
-        min: sorted[0],
-        p25: pct(25),
-        median: pct(50),
-        mean,
-        p75: pct(75),
-        p95: pct(95),
-        p99: pct(99),
-        max: sorted[n - 1],
-        stddev,
-    };
+async function test() {
+    function stats(samples) {
+        const sorted = [...samples].sort((a, b) => a - b);
+        const n = sorted.length;
+        const mean = samples.reduce((s, v) => s + v, 0) / n;
+        const variance = samples.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+        const stddev = Math.sqrt(variance);
+        const pct = (p) => {
+            const idx = Math.ceil((p / 100) * n) - 1;
+            return sorted[Math.max(0, Math.min(n - 1, idx))];
+        };
+        return {
+            min: sorted[0],
+            p25: pct(25),
+            median: pct(50),
+            mean,
+            p75: pct(75),
+            p95: pct(95),
+            p99: pct(99),
+            max: sorted[n - 1],
+            stddev,
+        };
+    }
+    function fmt(v) {
+        return v.toFixed(4) + "ms";
+    }
+    function printStats(label, s) {
+        console.log(`\n── ${label} ──`);
+        console.log(`  min    : ${fmt(s.min)}`);
+        console.log(`  p25    : ${fmt(s.p25)}`);
+        console.log(`  median : ${fmt(s.median)}`);
+        console.log(`  mean   : ${fmt(s.mean)}`);
+        console.log(`  p75    : ${fmt(s.p75)}`);
+        console.log(`  p95    : ${fmt(s.p95)}`);
+        console.log(`  p99    : ${fmt(s.p99)}`);
+        console.log(`  max    : ${fmt(s.max)}`);
+        console.log(`  stddev : ${fmt(s.stddev)}`);
+    }
+    const dsa = new PointPairSchnorrP256();
+    const encoder = new TextEncoder();
+    const message = encoder.encode("Hello, ECDSA!");
+    const ITERATIONS = 1;
+    const { privateKey, publicKey } = dsa.generateKeyPair();
+    const signature = dsa.sign(message, privateKey);
+    // ================================================================
+    //  自作署名
+    // ================================================================
+    console.log(`\n${"=".repeat(50)}`);
+    console.log(`  自作署名  (n=${ITERATIONS.toLocaleString()})`);
+    console.log("=".repeat(50));
+    const selfSignSamples = [];
+    for (let i = 0; i < ITERATIONS; i++) {
+        const t0 = performance.now();
+        dsa.sign(message, privateKey);
+        selfSignSamples.push(performance.now() - t0);
+    }
+    const selfVerifySamples = [];
+    for (let i = 0; i < ITERATIONS; i++) {
+        const t0 = performance.now();
+        dsa.verify(message, publicKey, signature);
+        selfVerifySamples.push(performance.now() - t0);
+    }
+    printStats("署名", stats(selfSignSamples));
+    printStats("検証", stats(selfVerifySamples));
+    // ================================================================
+    //  WebCrypto ECDSA P-256
+    // ================================================================
+    console.log(`\n${"=".repeat(50)}`);
+    console.log(`  WebCrypto ECDSA P-256  (n=${ITERATIONS.toLocaleString()})`);
+    console.log("=".repeat(50));
+    const ecKeyPair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    const ecSig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, ecKeyPair.privateKey, message);
+    const ecSignSamples = [];
+    for (let i = 0; i < ITERATIONS; i++) {
+        const t0 = performance.now();
+        await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, ecKeyPair.privateKey, message);
+        ecSignSamples.push(performance.now() - t0);
+    }
+    const ecVerifySamples = [];
+    for (let i = 0; i < ITERATIONS; i++) {
+        const t0 = performance.now();
+        await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, ecKeyPair.publicKey, ecSig, message);
+        ecVerifySamples.push(performance.now() - t0);
+    }
+    printStats("署名", stats(ecSignSamples));
+    printStats("検証", stats(ecVerifySamples));
+    // ================================================================
+    //  比率サマリ (mean ベース)
+    // ================================================================
+    const ss = stats(selfSignSamples);
+    const sv = stats(selfVerifySamples);
+    const es = stats(ecSignSamples);
+    const ev = stats(ecVerifySamples);
+    console.log(`\n${"=".repeat(50)}`);
+    console.log("  比率サマリ (mean ベース)");
+    console.log("=".repeat(50));
+    console.log(`自作 vs WebCrypto ECDSA  署名: ${(ss.mean / es.mean).toFixed(1)}倍   検証: ${(sv.mean / ev.mean).toFixed(1)}倍`);
 }
-function fmt(v) {
-    return v.toFixed(4) + "ms";
-}
-function printStats(label, s) {
-    console.log(`\n── ${label} ──`);
-    console.log(`  min    : ${fmt(s.min)}`);
-    console.log(`  p25    : ${fmt(s.p25)}`);
-    console.log(`  median : ${fmt(s.median)}`);
-    console.log(`  mean   : ${fmt(s.mean)}`);
-    console.log(`  p75    : ${fmt(s.p75)}`);
-    console.log(`  p95    : ${fmt(s.p95)}`);
-    console.log(`  p99    : ${fmt(s.p99)}`);
-    console.log(`  max    : ${fmt(s.max)}`);
-    console.log(`  stddev : ${fmt(s.stddev)}`);
-}
-const dsa = new PointPairSchnorrP256();
-const encoder = new TextEncoder();
-const message = encoder.encode("Hello, ECDSA!");
-const ITERATIONS = 10000;
-const { privateKey, publicKey } = dsa.generateKeyPair();
-const signature = dsa.sign(message, privateKey);
-// ================================================================
-//  自作署名
-// ================================================================
-console.log(`\n${"=".repeat(50)}`);
-console.log(`  自作署名  (n=${ITERATIONS.toLocaleString()})`);
-console.log("=".repeat(50));
-const selfSignSamples = [];
-for (let i = 0; i < ITERATIONS; i++) {
-    const t0 = performance.now();
-    dsa.sign(message, privateKey);
-    selfSignSamples.push(performance.now() - t0);
-}
-const selfVerifySamples = [];
-for (let i = 0; i < ITERATIONS; i++) {
-    const t0 = performance.now();
-    dsa.verify(message, publicKey, signature);
-    selfVerifySamples.push(performance.now() - t0);
-}
-printStats("署名", stats(selfSignSamples));
-printStats("検証", stats(selfVerifySamples));
-// ================================================================
-//  WebCrypto ECDSA P-256
-// ================================================================
-console.log(`\n${"=".repeat(50)}`);
-console.log(`  WebCrypto ECDSA P-256  (n=${ITERATIONS.toLocaleString()})`);
-console.log("=".repeat(50));
-const ecKeyPair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
-const ecSig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, ecKeyPair.privateKey, message);
-const ecSignSamples = [];
-for (let i = 0; i < ITERATIONS; i++) {
-    const t0 = performance.now();
-    await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, ecKeyPair.privateKey, message);
-    ecSignSamples.push(performance.now() - t0);
-}
-const ecVerifySamples = [];
-for (let i = 0; i < ITERATIONS; i++) {
-    const t0 = performance.now();
-    await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, ecKeyPair.publicKey, ecSig, message);
-    ecVerifySamples.push(performance.now() - t0);
-}
-printStats("署名", stats(ecSignSamples));
-printStats("検証", stats(ecVerifySamples));
-// ================================================================
-//  WebCrypto RSA-4096
-// ================================================================
-console.log(`\n${"=".repeat(50)}`);
-console.log(`  WebCrypto RSA-4096  (n=${ITERATIONS.toLocaleString()})`);
-console.log("=".repeat(50));
-const rsaKeyPair = await crypto.subtle.generateKey({
-    name: "RSASSA-PKCS1-v1_5",
-    modulusLength: 4096,
-    publicExponent: new Uint8Array([1, 0, 1]),
-    hash: "SHA-256",
-}, true, ["sign", "verify"]);
-const rsaSig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", rsaKeyPair.privateKey, message);
-const rsaSignSamples = [];
-for (let i = 0; i < ITERATIONS; i++) {
-    const t0 = performance.now();
-    await crypto.subtle.sign("RSASSA-PKCS1-v1_5", rsaKeyPair.privateKey, message);
-    rsaSignSamples.push(performance.now() - t0);
-}
-const rsaVerifySamples = [];
-for (let i = 0; i < ITERATIONS; i++) {
-    const t0 = performance.now();
-    await crypto.subtle.verify("RSASSA-PKCS1-v1_5", rsaKeyPair.publicKey, rsaSig, message);
-    rsaVerifySamples.push(performance.now() - t0);
-}
-printStats("署名", stats(rsaSignSamples));
-printStats("検証", stats(rsaVerifySamples));
-// ================================================================
-//  比率サマリ (mean ベース)
-// ================================================================
-const ss = stats(selfSignSamples);
-const sv = stats(selfVerifySamples);
-const es = stats(ecSignSamples);
-const ev = stats(ecVerifySamples);
-const rs = stats(rsaSignSamples);
-const rv = stats(rsaVerifySamples);
-console.log(`\n${"=".repeat(50)}`);
-console.log("  比率サマリ (mean ベース)");
-console.log("=".repeat(50));
-console.log(`自作 vs WebCrypto ECDSA  署名: ${(ss.mean / es.mean).toFixed(1)}倍   検証: ${(sv.mean / ev.mean).toFixed(1)}倍`);
-console.log(`自作 vs WebCrypto RSA    署名: ${(ss.mean / rs.mean).toFixed(1)}倍   検証: ${(sv.mean / rv.mean).toFixed(1)}倍`);
 // ================================================================
 //  正当性チェック
 // ================================================================
+const dsa = new PointPairSchnorrP256();
+const encoder = new TextEncoder();
+const message = encoder.encode("Hello, ECDSA!");
+const { privateKey, publicKey } = dsa.generateKeyPair();
+console.time("sign");
+const signature = dsa.sign(message, privateKey);
+console.timeEnd("sign");
 const fakeResult = dsa.verify(encoder.encode("Fake message!"), publicKey, signature);
+console.time("verify");
 const trueResult = dsa.verify(message, publicKey, signature);
+console.timeEnd("verify");
 console.log(`\n不正署名: ${fakeResult}`);
 console.log(`正当な署名: ${trueResult}`);
+test();
