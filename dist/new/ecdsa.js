@@ -120,41 +120,19 @@ export class PointPairSchnorrP256 {
         const Rj = this.scalarMultGJac(k);
         // Rのアフィンが必要（eのハッシュ入力に使う）→ 一旦Rだけ変換
         const Rtemp = this.toAffine(Rj);
-        const e = this.bytesToBigInt(this.sha256(new Uint8Array([
-            ...this.BigintToBytes(Rtemp[0]),
-            ...this.BigintToBytes(Rtemp[1]),
-            ...this.BigintToBytes(message),
-        ]))) % this.N;
+        const e = this.bytesToBigInt(this.sha256(this.concat(this.BigintToBytes(Rtemp[0]), this.BigintToBytes(Rtemp[1]), this.BigintToBytes(message)))) % this.N;
         const s = (k + privKey + e) % this.N;
-        const Sj = this.scalarMultGJac(s);
-        // Montgomery's trick: inv 1回で2点変換
-        const Z1Z2 = (Rj[2] * Sj[2]) % this.P;
-        const invZ1Z2 = this.inv(Z1Z2, this.P);
-        const invZ1 = (invZ1Z2 * Sj[2]) % this.P;
-        const invZ2 = (invZ1Z2 * Rj[2]) % this.P;
-        const invZ1_2 = (invZ1 * invZ1) % this.P;
-        const invZ1_3 = (invZ1_2 * invZ1) % this.P;
-        const invZ2_2 = (invZ2 * invZ2) % this.P;
-        const invZ2_3 = (invZ2_2 * invZ2) % this.P;
-        const R = [
-            (Rj[0] * invZ1_2) % this.P,
-            (Rj[1] * invZ1_3) % this.P,
-        ];
-        const S = [
-            (Sj[0] * invZ2_2) % this.P,
-            (Sj[1] * invZ2_3) % this.P,
-        ];
-        return [R, S];
+        const R = this.toAffine(Rj);
+        return [R, s];
     }
     sign(message, privKey) {
         const messageBigint = this.bytesToBigInt(message);
         const privKeyBigint = this.bytesToBigInt(privKey);
-        const [R, S] = this.signBigint(messageBigint, privKeyBigint);
+        const [R, s] = this.signBigint(messageBigint, privKeyBigint);
         return [
             this.BigintToBytes(R[0]),
             this.BigintToBytes(R[1]),
-            this.BigintToBytes(S[0]),
-            this.BigintToBytes(S[1]),
+            this.BigintToBytes(s),
         ];
     }
     verify(message, pubKey, signature) {
@@ -167,16 +145,12 @@ export class PointPairSchnorrP256 {
             this.bytesToBigInt(signature[0]),
             this.bytesToBigInt(signature[1]),
         ];
-        const S = [
-            this.bytesToBigInt(signature[2]),
-            this.bytesToBigInt(signature[3]),
-        ];
+        const s = this.bytesToBigInt(signature[2]);
         if (!this.isPointOnCurve(pubKeyBigint))
             return false;
         if (!this.isPointOnCurve(R))
             return false;
-        if (!this.isPointOnCurve(S))
-            return false;
+        const sg = this.scalarMultGJac(s);
         const e = this.bytesToBigInt(this.sha256(new Uint8Array([
             ...this.BigintToBytes(R[0]),
             ...this.BigintToBytes(R[1]),
@@ -186,10 +160,12 @@ export class PointPairSchnorrP256 {
         const Rj = [R[0], R[1], 1n];
         const Yj = [pubKeyBigint[0], pubKeyBigint[1], 1n];
         const right = this.addPointsJacobian(this.addPointsJacobian(Rj, Yj), eG);
-        const Z2 = (right[2] * right[2]) % this.P;
-        const Z3 = (Z2 * right[2]) % this.P;
-        return ((S[0] * Z2) % this.P === right[0] % this.P &&
-            (S[1] * Z3) % this.P === right[1] % this.P);
+        const Z1sq = (sg[2] * sg[2]) % this.P;
+        const Z2sq = (right[2] * right[2]) % this.P;
+        const Z1cu = (Z1sq * sg[2]) % this.P;
+        const Z2cu = (Z2sq * right[2]) % this.P;
+        return ((sg[0] * Z2sq) % this.P === (right[0] * Z1sq) % this.P &&
+            (sg[1] * Z2cu) % this.P === (right[1] * Z1cu) % this.P);
     }
     generateKeyPair() {
         const privKey = this.getRandomBigInt(this.N);
