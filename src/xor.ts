@@ -243,7 +243,7 @@ export class cipher {
     }
 
     const iv = globalThis.crypto.getRandomValues(new Uint8Array(16));
-     //変えるのめんどい
+    //変えるのめんどい
     const stretchedKey = this.stretch(key, iv);
 
     // HKDF で暗号化用とMAC用を独立して導出

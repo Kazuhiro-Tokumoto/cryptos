@@ -1,5 +1,5 @@
-class lamport{
-      private sha256(data: Uint8Array): Uint8Array {
+class lamport {
+  private sha256(data: Uint8Array): Uint8Array {
     const K = new Uint32Array([
       0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
       0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
@@ -96,27 +96,23 @@ class lamport{
     return result;
   }
 
-
-    private randomBytes(n: number): Uint8Array {
+  private randomBytes(n: number): Uint8Array {
     const buf = new Uint8Array(n);
     crypto.getRandomValues(buf);
     return buf;
   }
 
   // 秘密鍵生成: [256][2][32bytes]
-generateSecretKey(): Uint8Array[][] {
-  return Array.from({ length: 256 }, () => [
-    this.randomBytes(32),
-    this.randomBytes(32),
-  ]);
-}
+  generateSecretKey(): Uint8Array[][] {
+    return Array.from({ length: 256 }, () => [
+      this.randomBytes(32),
+      this.randomBytes(32),
+    ]);
+  }
 
-generatePublicKey(sk: Uint8Array[][]): Uint8Array[][] {
-  return sk.map(([s0, s1]) => [
-    this.sha256(s0),
-    this.sha256(s1),
-  ]);
-}
+  generatePublicKey(sk: Uint8Array[][]): Uint8Array[][] {
+    return sk.map(([s0, s1]) => [this.sha256(s0), this.sha256(s1)]);
+  }
   // 署名: ハッシュの各ビットで0か1かを選ぶ
   sign(message: Uint8Array, sk: Uint8Array[][]): Uint8Array[] {
     const msgHash = this.sha256(message);

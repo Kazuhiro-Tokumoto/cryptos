@@ -1,0 +1,1266 @@
+export class RSA {
+    smallPrimes = null;
+    montgomeryTableCache = new Map();
+    async initAsync(binPath = "https://cdn.jsdelivr.net/gh/Kazuhiro-Tokumoto/rsa@main/primes.bin") {
+        const response = await fetch(binPath);
+        const buffer = await response.arrayBuffer();
+        this.smallPrimes = new Uint32Array(buffer);
+    }
+    sha256(data) {
+        const K = new Uint32Array([
+            0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+            0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+            0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+            0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+            0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+            0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+            0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+            0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+            0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+            0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+            0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+        ]);
+        const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+        let h0 = 0x6a09e667, h1 = 0xbb67ae85, h2 = 0x3c6ef372, h3 = 0xa54ff53a;
+        let h4 = 0x510e527f, h5 = 0x9b05688c, h6 = 0x1f83d9ab, h7 = 0x5be0cd19;
+        const len = data.length;
+        const bitLen = len * 8;
+        const blockCount = Math.ceil((len + 9) / 64);
+        const blocks = new Uint8Array(blockCount * 64);
+        blocks.set(data);
+        blocks[len] = 0x80;
+        const view = new DataView(blocks.buffer);
+        view.setUint32(blocks.length - 8, Math.floor(bitLen / 0x100000000), false);
+        view.setUint32(blocks.length - 4, bitLen >>> 0, false);
+        for (let i = 0; i < blocks.length; i += 64) {
+            const W = new Uint32Array(64);
+            for (let t = 0; t < 16; t++) {
+                W[t] = view.getUint32(i + t * 4, false);
+            }
+            for (let t = 16; t < 64; t++) {
+                const s0 = rotr(W[t - 15], 7) ^ rotr(W[t - 15], 18) ^ (W[t - 15] >>> 3);
+                const s1 = rotr(W[t - 2], 17) ^ rotr(W[t - 2], 19) ^ (W[t - 2] >>> 10);
+                W[t] = (W[t - 16] + s0 + W[t - 7] + s1) >>> 0;
+            }
+            let a = h0, b = h1, c = h2, d = h3;
+            let e = h4, f = h5, g = h6, h = h7;
+            for (let t = 0; t < 64; t++) {
+                const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+                const ch = (e & f) ^ ((~e >>> 0) & g); // ✅ ~e を明示的にuint32化
+                const temp1 = (h + S1 + ch + K[t] + W[t]) >>> 0;
+                const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+                const maj = (a & b) ^ (a & c) ^ (b & c);
+                const temp2 = (S0 + maj) >>> 0;
+                h = g;
+                g = f;
+                f = e;
+                e = (d + temp1) >>> 0;
+                d = c;
+                c = b;
+                b = a;
+                a = (temp1 + temp2) >>> 0;
+            }
+            h0 = (h0 + a) >>> 0;
+            h1 = (h1 + b) >>> 0;
+            h2 = (h2 + c) >>> 0;
+            h3 = (h3 + d) >>> 0;
+            h4 = (h4 + e) >>> 0;
+            h5 = (h5 + f) >>> 0;
+            h6 = (h6 + g) >>> 0;
+            h7 = (h7 + h) >>> 0;
+        }
+        const result = new Uint8Array(32);
+        const rv = new DataView(result.buffer);
+        rv.setUint32(0, h0, false);
+        rv.setUint32(4, h1, false);
+        rv.setUint32(8, h2, false);
+        rv.setUint32(12, h3, false);
+        rv.setUint32(16, h4, false);
+        rv.setUint32(20, h5, false);
+        rv.setUint32(24, h6, false);
+        rv.setUint32(28, h7, false);
+        return result;
+    }
+    async mgf1(seed, maskLen, onProgress) {
+        const hLen = 32;
+        const mask = new Uint8Array(maskLen);
+        let offset = 0;
+        let counter = 0;
+        const totalIterations = Math.ceil(maskLen / hLen);
+        while (offset < maskLen) {
+            const counterBytes = new Uint8Array(4);
+            counterBytes[0] = (counter >>> 24) & 0xff;
+            counterBytes[1] = (counter >>> 16) & 0xff;
+            counterBytes[2] = (counter >>> 8) & 0xff;
+            counterBytes[3] = counter & 0xff;
+            const input = new Uint8Array(seed.length + 4);
+            input.set(seed);
+            input.set(counterBytes, seed.length);
+            const hash = this.sha256(input);
+            const copyLen = Math.min(hash.length, maskLen - offset);
+            mask.set(hash.subarray(0, copyLen), offset);
+            offset += copyLen;
+            counter++;
+            if (onProgress && counter % 10 === 0) {
+                onProgress(counter, totalIterations);
+            }
+        }
+        if (onProgress) {
+            onProgress(totalIterations, totalIterations);
+        }
+        return mask;
+    }
+    xorBytes(a, b) {
+        const result = new Uint8Array(a.length);
+        for (let i = 0; i < a.length; i++) {
+            result[i] = a[i] ^ b[i];
+        }
+        return result;
+    }
+    async oeapPad(message, k, label = new Uint8Array(0), onProgress) {
+        const hLen = 32;
+        const mLen = message.length;
+        if (mLen > k - 2 * hLen - 2) {
+            throw new Error(`メッセージが長すぎます。パディングを考慮すると、RSA-${k * 8}bitでは約${k - 2 * hLen - 2}バイトまでです。`);
+        }
+        onProgress?.("lHash計算中", 0);
+        const lHash = await this.sha256(label);
+        const psLen = k - mLen - 2 * hLen - 2;
+        const ps = new Uint8Array(psLen);
+        onProgress?.("DB構築中", 5);
+        const db = new Uint8Array(k - hLen - 1);
+        db.set(lHash, 0);
+        db.set(ps, hLen);
+        db[hLen + psLen] = 0x01;
+        db.set(message, hLen + psLen + 1);
+        const seed = new Uint8Array(hLen);
+        crypto.getRandomValues(seed);
+        onProgress?.("dbMask生成中", 10);
+        const dbMask = await this.mgf1(seed, k - hLen - 1, (cur, total) => {
+            const percent = 10 + (cur / total) * 40;
+            onProgress?.(`dbMask生成中 (${cur}/${total})`, percent);
+        });
+        onProgress?.("maskedDB計算中", 50);
+        const maskedDB = this.xorBytes(db, dbMask);
+        onProgress?.("seedMask生成中", 55);
+        const seedMask = await this.mgf1(maskedDB, hLen, (cur, total) => {
+            const percent = 55 + (cur / total) * 35;
+            onProgress?.(`seedMask生成中 (${cur}/${total})`, percent);
+        });
+        onProgress?.("最終処理中", 90);
+        const maskedSeed = this.xorBytes(seed, seedMask);
+        const em = new Uint8Array(k);
+        em[0] = 0x00;
+        em.set(maskedSeed, 1);
+        em.set(maskedDB, 1 + hLen);
+        onProgress?.("パディング完了", 100);
+        return em;
+    }
+    async oeapUnpad(em, k, label = new Uint8Array(0), onProgress) {
+        const hLen = 32;
+        if (em.length !== k || k < 2 * hLen + 2) {
+            throw new Error("復号エラー: 不正なパディング");
+        }
+        onProgress?.("lHash計算中", 0);
+        const lHash = await this.sha256(label);
+        onProgress?.("EM分解中", 5);
+        const y = em[0];
+        const maskedSeed = em.subarray(1, 1 + hLen);
+        const maskedDB = em.subarray(1 + hLen);
+        onProgress?.("seedMask生成中", 10);
+        const seedMask = await this.mgf1(maskedDB, hLen, (cur, total) => {
+            const percent = 10 + (cur / total) * 40;
+            onProgress?.(`seedMask生成中 (${cur}/${total})`, percent);
+        });
+        onProgress?.("seed復元中", 50);
+        const seed = this.xorBytes(maskedSeed, seedMask);
+        onProgress?.("dbMask生成中", 55);
+        const dbMask = await this.mgf1(seed, k - hLen - 1, (cur, total) => {
+            const percent = 55 + (cur / total) * 35;
+            onProgress?.(`dbMask生成中 (${cur}/${total})`, percent);
+        });
+        onProgress?.("DB復元中", 90);
+        const db = this.xorBytes(maskedDB, dbMask);
+        onProgress?.("検証中", 95);
+        const lHashPrime = db.subarray(0, hLen);
+        let lHashMatch = true;
+        for (let i = 0; i < hLen; i++) {
+            if (lHash[i] !== lHashPrime[i]) {
+                lHashMatch = false;
+                break;
+            }
+        }
+        let separatorIndex = -1;
+        for (let i = hLen; i < db.length; i++) {
+            if (db[i] === 0x01) {
+                separatorIndex = i;
+                break;
+            }
+            else if (db[i] !== 0x00) {
+                throw new Error("復号エラー: 不正なパディング構造");
+            }
+        }
+        if (y !== 0x00 || !lHashMatch || separatorIndex === -1) {
+            throw new Error("復号エラー: パディング検証失敗");
+        }
+        onProgress?.("メッセージ抽出完了", 100);
+        const message = db.subarray(separatorIndex + 1);
+        return message;
+    }
+    encryptWorkers = [];
+    decryptWorkers = [];
+    workerCount = 4;
+    workersInitialized = false;
+    initWorkers() {
+        if (this.workersInitialized)
+            return;
+        try {
+            for (let i = 0; i < this.workerCount; i++) {
+                const encWorker = new Worker("./encrypt-worker.js");
+                const decWorker = new Worker("./decrypt-worker.js");
+                encWorker.onerror = (e) => {
+                    console.error("Encrypt Worker エラー:", e);
+                };
+                decWorker.onerror = (e) => {
+                    console.error("Decrypt Worker エラー:", e);
+                };
+                this.encryptWorkers.push(encWorker);
+                this.decryptWorkers.push(decWorker);
+            }
+            this.workersInitialized = true;
+        }
+        catch (err) {
+            console.error("Worker初期化で例外:", err);
+            console.warn("Worker初期化失敗、メインスレッドで実行します", err);
+        }
+    }
+    async encryptStringToBase64(text, e, n, muN, nShift, onProgress) {
+        const msgBin = new TextEncoder().encode(text);
+        const nByteLen = Math.ceil(this.bitLength(n) / 8);
+        const maxChunkSize = nByteLen - 66;
+        const chunks = [];
+        for (let i = 0; i < msgBin.length; i += maxChunkSize) {
+            chunks.push(msgBin.slice(i, i + maxChunkSize));
+        }
+        this.initWorkers();
+        if (this.workersInitialized && chunks.length > 10) {
+            return this.encryptParallel(chunks, e, n, muN, nShift, nByteLen, onProgress);
+        }
+        else {
+            return this.encryptSequential(chunks, e, n, muN, nShift, nByteLen, onProgress);
+        }
+    }
+    async encryptSequential(chunks, e, n, muN, nShift, nByteLen, onProgress) {
+        const encryptedChunks = [];
+        for (let i = 0; i < chunks.length; i++) {
+            const chunk = chunks[i];
+            const paddedMsg = await this.oeapPad(chunk, nByteLen, new Uint8Array(0));
+            const m = this.bytesToBigInt(paddedMsg);
+            const c = this.modExpAsync(m, e, n, muN, nShift);
+            const cBytes = this.bigintToUint8Array(c);
+            const cBytesPadded = new Uint8Array(nByteLen);
+            cBytesPadded.set(cBytes, nByteLen - cBytes.length);
+            encryptedChunks.push(cBytesPadded);
+            onProgress?.("暗号化進行中", Math.floor(((i + 1) / chunks.length) * 100));
+        }
+        const totalEncryptedLength = encryptedChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const combinedEncrypted = new Uint8Array(totalEncryptedLength);
+        let offset = 0;
+        for (const chunk of encryptedChunks) {
+            combinedEncrypted.set(chunk, offset);
+            offset += chunk.length;
+        }
+        return this.bytesToBase64(combinedEncrypted);
+    }
+    async encryptParallel(chunks, e, n, muN, nShift, nByteLen, onProgress) {
+        const chunksPerWorker = Math.ceil(chunks.length / this.workerCount);
+        const promises = this.encryptWorkers.map((worker, idx) => {
+            const start = idx * chunksPerWorker;
+            const end = Math.min(start + chunksPerWorker, chunks.length);
+            const workerChunks = chunks.slice(start, end);
+            if (workerChunks.length === 0)
+                return Promise.resolve([]);
+            return new Promise((resolve) => {
+                worker.onmessage = (event) => {
+                    if (event.data.error) {
+                        console.error("❌ Worker内でエラー:", event.data.error);
+                        resolve([]);
+                        return;
+                    }
+                    if (!event.data.results) {
+                        console.error("❌ results が undefined!");
+                        resolve([]);
+                        return;
+                    }
+                    const base64Results = event.data.results;
+                    const uint8Results = base64Results.map((b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+                    resolve(uint8Results);
+                };
+                worker.onerror = (err) => {
+                    console.error("❌ Workerエラー:", err);
+                    resolve([]);
+                };
+                // 🔥 修正: Uint8Array を Array に変換してから送る
+                worker.postMessage({
+                    chunks: workerChunks.map((chunk) => Array.from(chunk)), // ← ここ！
+                    e: e.toString(),
+                    n: n.toString(),
+                    muN: muN.toString(),
+                    nShift: nShift.toString(),
+                    nByteLen,
+                });
+            });
+        });
+        onProgress?.("並列暗号化中", 50);
+        const results = await Promise.all(promises);
+        const allChunks = results.flat();
+        const totalLength = allChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const combined = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const chunk of allChunks) {
+            combined.set(chunk, offset);
+            offset += chunk.length;
+        }
+        onProgress?.("暗号化完了", 100);
+        return this.bytesToBase64(combined);
+    }
+    async decryptBase64ToString(b64Cipher, d, p, q, n, dp, dq, qInv, muP, muQ, muN, pShift, qShift, nShift, onProgress) {
+        try {
+            const cipherBin = this.base64ToBytes(b64Cipher);
+            const nByteLen = Math.ceil(this.bitLength(n) / 8);
+            const chunks = [];
+            const totalBlocks = cipherBin.length / nByteLen;
+            for (let i = 0; i < totalBlocks; i++) {
+                const start = i * nByteLen;
+                chunks.push(cipherBin.slice(start, start + nByteLen));
+            }
+            this.initWorkers();
+            if (this.workersInitialized && chunks.length > 10) {
+                return this.decryptParallel(chunks, d, p, q, n, dp, dq, qInv, muP, muQ, muN, pShift, qShift, nShift, nByteLen, onProgress);
+            }
+            else {
+                return this.decryptSequential(chunks, d, p, q, n, dp, dq, qInv, muP, muQ, muN, pShift, qShift, nShift, nByteLen, onProgress);
+            }
+        }
+        catch (err) {
+            console.error("❌ 復号中に例外:", err);
+            throw err;
+        }
+    }
+    async decryptSequential(chunks, d, p, q, n, dp, dq, qInv, muP, muQ, muN, pShift, qShift, nShift, nByteLen, onProgress) {
+        const decryptedChunks = [];
+        for (let i = 0; i < chunks.length; i++) {
+            const chunk = chunks[i];
+            const c = this.bytesToBigInt(chunk);
+            if (c >= n) {
+                throw new Error(`復号エラー: ブロック${i}の暗号文が不正です（c >= n）`);
+            }
+            const cp = this.barrettReduce(c, p, muP, pShift);
+            const cq = this.barrettReduce(c, q, muQ, qShift);
+            const m1 = this.modExpAsync(cp, dp, p, muP, pShift);
+            const m2 = this.modExpAsync(cq, dq, q, muQ, qShift);
+            let diff = m1 - m2;
+            while (diff < 0n)
+                diff += p;
+            let h = this.barrettReduce(qInv * diff, p, muP, pShift);
+            let m = m2 + h * q;
+            if (m >= n) {
+                m = this.barrettReduce(m, n, muN, nShift);
+            }
+            if (m < 0n) {
+                throw new Error(`復号エラー: ブロック${i}で負の値`);
+            }
+            const paddedMsg = (() => {
+                try {
+                    return this.bigintToUint8Array(m, nByteLen);
+                }
+                catch {
+                    const temp = this.bigintToUint8Array(m);
+                    const out = new Uint8Array(nByteLen);
+                    out.set(temp, nByteLen - temp.length);
+                    return out;
+                }
+            })();
+            const messageChunk = await this.oeapUnpad(paddedMsg, nByteLen, new Uint8Array(0));
+            decryptedChunks.push(messageChunk);
+            onProgress?.(`復号・ブロック処理中 (${i + 1}/${chunks.length})`, Math.floor(((i + 1) / chunks.length) * 100));
+        }
+        const totalLength = decryptedChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const combined = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const chunk of decryptedChunks) {
+            combined.set(chunk, offset);
+            offset += chunk.length;
+        }
+        return new TextDecoder().decode(combined);
+    }
+    async decryptParallel(chunks, d, p, q, n, dp, dq, qInv, muP, muQ, muN, pShift, qShift, nShift, nByteLen, onProgress) {
+        const chunksPerWorker = Math.ceil(chunks.length / this.workerCount);
+        const chunksB64 = chunks.map((chunk) => btoa(String.fromCharCode(...chunk)));
+        const promises = this.decryptWorkers.map((worker, idx) => {
+            const start = idx * chunksPerWorker;
+            const end = Math.min(start + chunksPerWorker, chunksB64.length);
+            const workerChunks = chunksB64.slice(start, end);
+            if (workerChunks.length === 0)
+                return Promise.resolve([]);
+            return new Promise((resolve) => {
+                worker.onmessage = (event) => {
+                    if (event.data.error) {
+                        console.error("❌ Worker内でエラー:", event.data.error);
+                        resolve([]);
+                        return;
+                    }
+                    if (!event.data.results) {
+                        console.error("❌ results が undefined!");
+                        resolve([]);
+                        return;
+                    }
+                    const base64Results = event.data.results;
+                    const uint8Results = base64Results.map((b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+                    resolve(uint8Results);
+                };
+                worker.onerror = (err) => {
+                    console.error("❌ Workerエラー:", err);
+                    resolve([]);
+                };
+                worker.postMessage({
+                    chunks: workerChunks,
+                    d: d.toString(),
+                    p: p.toString(),
+                    q: q.toString(),
+                    dp: dp.toString(),
+                    dq: dq.toString(),
+                    qInv: qInv.toString(),
+                    muP: muP.toString(),
+                    muQ: muQ.toString(),
+                    muN: muN.toString(),
+                    pShift: pShift.toString(),
+                    qShift: qShift.toString(),
+                    nShift: nShift.toString(),
+                    nByteLen,
+                });
+            });
+        });
+        onProgress?.("並列復号中", 50);
+        const results = await Promise.all(promises);
+        const allChunks = results.flat();
+        const totalLength = allChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const combined = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const chunk of allChunks) {
+            combined.set(chunk, offset);
+            offset += chunk.length;
+        }
+        onProgress?.("復号完了", 100);
+        return new TextDecoder().decode(combined);
+    }
+    addPKCS1Padding(hash, keyBits) {
+        const digestInfo = new Uint8Array([
+            0x30,
+            0x31,
+            0x30,
+            0x0d,
+            0x06,
+            0x09,
+            0x60,
+            0x86,
+            0x48,
+            0x01,
+            0x65,
+            0x03,
+            0x04,
+            0x02,
+            0x01,
+            0x05,
+            0x00,
+            0x04,
+            0x20,
+            ...hash,
+        ]);
+        const tLen = digestInfo.length;
+        const emLen = Math.floor((keyBits + 7) / 8);
+        if (emLen < tLen + 11) {
+            throw new Error("鍵サイズが小さすぎます");
+        }
+        const ps = new Uint8Array(emLen - tLen - 3).fill(0xff);
+        const em = new Uint8Array(emLen);
+        em[0] = 0x00;
+        em[1] = 0x01;
+        em.set(ps, 2);
+        em[emLen - tLen - 1] = 0x00;
+        em.set(digestInfo, emLen - tLen);
+        return this.bytesToBigInt(em);
+    }
+    verifyPKCS1Padding(em) {
+        if (em.length < 11)
+            return null;
+        if (em[0] !== 0x00 || em[1] !== 0x01)
+            return null;
+        let i = 2;
+        while (i < em.length && em[i] === 0xff)
+            i++;
+        if (i < 10 || em[i] !== 0x00)
+            return null;
+        const digestInfo = em.slice(i + 1);
+        if (digestInfo.length !== 51)
+            return null;
+        if (digestInfo[0] !== 0x30 || digestInfo[1] !== 0x31)
+            return null;
+        return digestInfo.slice(19, 51);
+    }
+    async signStringToBase64(text, d, p, q, n, dp, dq, qInv, muP, muQ, pShift, qShift) {
+        const msgBin = new TextEncoder().encode(text);
+        const hashBin = await this.sha256(msgBin);
+        const keyBits = this.bitLength(n);
+        const keyBytes = Math.floor((keyBits + 7) / 8);
+        const m = this.addPKCS1Padding(hashBin, keyBits);
+        const mp = this.barrettReduce(m, p, muP, pShift);
+        const mq = this.barrettReduce(m, q, muQ, qShift);
+        const s1 = this.modExpAsync(mp, dp, p, muP, pShift);
+        const s2 = this.modExpAsync(mq, dq, q, muQ, qShift);
+        let diff = s1 - s2;
+        while (diff < 0n)
+            diff += p;
+        let h = this.barrettReduce(qInv * diff, p, muP, pShift);
+        const s = s2 + h * q;
+        return this.bytesToBase64(this.bigintToUint8Array(s, keyBytes));
+    }
+    async verifyBase64Signature(text, b64Sig, e, n, muN, nShift) {
+        try {
+            const sigBin = this.base64ToBytes(b64Sig);
+            const s = this.bytesToBigInt(sigBin);
+            if (s >= n)
+                return false;
+            const m = this.modExpAsync(s, e, n, muN, nShift);
+            const keyBits = this.bitLength(n);
+            const keyBytes = Math.floor((keyBits + 7) / 8);
+            const em = this.bigintToUint8Array(m, keyBytes);
+            const extractedHash = this.verifyPKCS1Padding(em);
+            if (!extractedHash)
+                return false;
+            const msgBin = new TextEncoder().encode(text);
+            const hashBin = await this.sha256(msgBin);
+            if (extractedHash.length !== hashBin.length)
+                return false;
+            return extractedHash.every((byte, i) => byte === hashBin[i]);
+        }
+        catch {
+            return false;
+        }
+    }
+    bitLength(n) {
+        return n.toString(2).length;
+    }
+    modExp65537(base, mod, mu, shift) {
+        if (mod === 1n)
+            return 0n;
+        let r = this.barrettReduce(base, mod, mu, shift);
+        if (r === 0n)
+            return 0n;
+        // 16回の2乗 + 1回の乗算 = 2^16 + 1 = 65537
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        r = this.barrettReduce(r * r, mod, mu, shift);
+        return this.barrettReduce(r * this.barrettReduce(base, mod, mu, shift), mod, mu, shift);
+    }
+    barrettReduce(x, mod, mu, shift) {
+        const q = (x * mu) >> shift;
+        let r = x - q * mod;
+        // 数学的に2回以内の引き算で必ず mod 未満になる
+        if (r >= mod)
+            r -= mod;
+        if (r >= mod)
+            r -= mod;
+        // xが負にならない前提なら、ここも不要になる
+        // if (r < 0n) r += mod;
+        return r;
+    }
+    montgomeryModExpUltra(base, exp, mod, mu, shift) {
+        const bitLength = (n) => n.toString(2).length;
+        const modBits = bitLength(mod);
+        let k;
+        if (modBits >= 131072)
+            k = 13;
+        else if (modBits >= 65536)
+            k = 12;
+        else if (modBits >= 32768)
+            k = 11;
+        else if (modBits >= 16384)
+            k = 10;
+        else if (modBits >= 8192)
+            k = 9;
+        else if (modBits >= 4096)
+            k = 8;
+        else if (modBits >= 2048)
+            k = 7;
+        else if (modBits >= 1024)
+            k = 6;
+        else if (modBits >= 512)
+            k = 5;
+        else if (modBits >= 256)
+            k = 4;
+        else if (modBits >= 128)
+            k = 3;
+        else if (modBits >= 64)
+            k = 2;
+        else
+            k = 1;
+        // mod と k だけでキャッシュ（base依存のtableはキャッシュしない）
+        const cacheKey = `${mod}_${k}`;
+        let params = this.montgomeryTableCache.get(cacheKey);
+        if (!params) {
+            const wsize = k;
+            const R = 1n << BigInt(modBits);
+            const mask = R - 1n;
+            let nPrime = mod & mask;
+            for (let i = 0; i < Math.ceil(modBits / 64); i++) {
+                nPrime = (nPrime * (2n - ((mod * nPrime) & mask))) & mask;
+            }
+            nPrime = (R - nPrime) & mask;
+            params = {
+                modBits,
+                wsize,
+                R,
+                mask,
+                nPrime,
+                baseBar: 0n, // ダミー（キャッシュしない）
+                baseBar2: 0n, // ダミー（キャッシュしない）
+                table: [], // ダミー（キャッシュしない）
+            };
+            this.montgomeryTableCache.set(cacheKey, params);
+        }
+        const { modBits: mb, wsize, mask, nPrime } = params;
+        const montReduce = (T) => {
+            const u = ((T & mask) * nPrime) & mask;
+            const x = (T + u * mod) >> BigInt(mb);
+            return x >= mod ? x - mod : x;
+        };
+        // base依存のtableは毎回計算
+        const numOdd = 1 << (wsize - 1);
+        const baseBar = this.barrettReduce(base << BigInt(mb), mod, mu, shift);
+        const baseBar2 = montReduce(baseBar * baseBar);
+        const table = new Array(numOdd);
+        table[0] = baseBar;
+        for (let i = 1; i < numOdd; i++) {
+            table[i] = montReduce(table[i - 1] * baseBar2);
+        }
+        const expBin = exp.toString(2);
+        let res = this.barrettReduce(1n << BigInt(mb), mod, mu, shift);
+        for (let i = 0; i < expBin.length;) {
+            if (expBin[i] === "0") {
+                res = montReduce(res * res);
+                i++;
+                continue;
+            }
+            let winLen = Math.min(wsize, expBin.length - i);
+            while (winLen > 1 && expBin[i + winLen - 1] === "0") {
+                winLen--;
+            }
+            const winVal = parseInt(expBin.slice(i, i + winLen), 2);
+            for (let j = 0; j < winLen; j++) {
+                res = montReduce(res * res);
+            }
+            if (winVal > 0) {
+                res = montReduce(res * table[(winVal - 1) >> 1]);
+            }
+            i += winLen;
+        }
+        return montReduce(res);
+    }
+    modExpAsync(base, exp, mod, mu, shift) {
+        if (base < 0n || exp < 0n || mod <= 0n) {
+            throw new Error("modExpAsync: 不正な入力値");
+        }
+        base = this.barrettReduce(base, mod, mu, shift);
+        if (base < 0n)
+            base += mod;
+        if (exp === 0n)
+            return 1n;
+        if (base === 0n)
+            return 0n;
+        if (mod === 1n)
+            return 0n;
+        if (exp === 65537n) {
+            return this.modExp65537(base, mod, mu, shift);
+        }
+        if (exp === 3n) {
+            const b = this.barrettReduce(base, mod, mu, shift);
+            const b2 = this.barrettReduce(b * b, mod, mu, shift);
+            return this.barrettReduce(b2 * b, mod, mu, shift);
+        }
+        return this.montgomeryModExpUltra(base, exp, mod, mu, shift);
+    }
+    parsePublicKeyPem(pem) {
+        const base64 = pem.replace(/-----.*?-----|\s+/g, "");
+        const der = this.base64ToBytes(base64);
+        let offset = 0;
+        const parseLength = () => {
+            let len = der[offset++];
+            if (len & 0x80) {
+                const count = len & 0x7f;
+                let val = 0;
+                for (let i = 0; i < count; i++) {
+                    val = (val << 8) | der[offset++];
+                }
+                return val;
+            }
+            return len;
+        };
+        const integers = [];
+        while (offset < der.length) {
+            const tag = der[offset++];
+            if (tag === 0x30 || tag === 0x03) {
+                parseLength();
+                if (tag === 0x03)
+                    offset++;
+                continue;
+            }
+            if (tag === 0x02) {
+                const len = parseLength();
+                const bytes = der.subarray(offset, offset + len);
+                integers.push(this.bytesToBigInt(bytes));
+                offset += len;
+            }
+            else {
+                const len = parseLength();
+                offset += len;
+            }
+        }
+        let n = 0n, e = 0n;
+        for (const v of integers) {
+            if (v > 65537n)
+                n = v;
+            else if (v === 65537n || v === 3n)
+                e = v;
+        }
+        const kN = BigInt(this.bitLength(n));
+        const muN = (1n << (kN * 2n)) / n;
+        const nShift = kN * 2n;
+        return { n, e, muN, nShift };
+    }
+    parsePrivateKeyPem(pem) {
+        if (pem.includes("BEGIN OPENSSH PRIVATE KEY")) {
+            return this.parseOpenSSH(pem);
+        }
+        const base64 = pem.replace(/-----.*?-----|\s+/g, "");
+        const der = this.base64ToBytes(base64);
+        let offset = 0;
+        const parseLength = () => {
+            let len = der[offset++];
+            if (len & 0x80) {
+                const count = len & 0x7f;
+                let val = 0;
+                for (let i = 0; i < count; i++) {
+                    val = (val << 8) | der[offset++];
+                }
+                return val;
+            }
+            return len;
+        };
+        const integers = [];
+        while (offset < der.length) {
+            const tag = der[offset++];
+            if (tag === 0x30 || tag === 0x04) {
+                parseLength();
+                continue;
+            }
+            if (tag === 0x02) {
+                const len = parseLength();
+                const bytes = der.subarray(offset, offset + len);
+                integers.push(this.bytesToBigInt(bytes));
+                offset += len;
+            }
+            else {
+                const len = parseLength();
+                offset += len;
+            }
+        }
+        // 🔥 修正: PKCS#8 と PKCS#1 を自動判定 そうだ　もちろんclaudeだ
+        let n, e, d, p, q, dp, dq, qInv;
+        if (integers.length === 9) {
+            // PKCS#1形式（直接）
+            n = integers[1];
+            e = integers[2];
+            d = integers[3];
+            p = integers[4];
+            q = integers[5];
+            dp = integers[6];
+            dq = integers[7];
+            qInv = integers[8];
+        }
+        else if (integers.length === 10) {
+            // PKCS#8形式（exportToPemが作る形式）
+            n = integers[2]; // ← 1つずれる！
+            e = integers[3];
+            d = integers[4];
+            p = integers[5];
+            q = integers[6];
+            dp = integers[7];
+            dq = integers[8];
+            qInv = integers[9];
+        }
+        else {
+            throw new Error(`想定外のinteger数: ${integers.length} (期待: 9 or 10)`);
+        }
+        const kN = BigInt(this.bitLength(n));
+        const kP = BigInt(this.bitLength(p));
+        const kQ = BigInt(this.bitLength(q));
+        const muN = (1n << (kN * 2n)) / n;
+        const muP = (1n << (kP * 2n)) / p;
+        const muQ = (1n << (kQ * 2n)) / q;
+        return {
+            n,
+            e,
+            d,
+            p,
+            q,
+            dp,
+            dq,
+            qInv,
+            muN,
+            muP,
+            muQ,
+            nShift: kN * 2n,
+            pShift: kP * 2n,
+            qShift: kQ * 2n,
+        };
+    }
+    parseOpenSSH(pem) {
+        const base64 = pem.replace(/-----.*?-----|\s+/g, "");
+        const bin = this.base64ToBytes(base64);
+        const view = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
+        let pos = 0;
+        const readBuffer = () => {
+            const len = view.getUint32(pos);
+            pos += 4;
+            const data = bin.subarray(pos, pos + len);
+            pos += len;
+            return data;
+        };
+        pos += 15; // "openssh-key-v1\0" をスキップ
+        readBuffer(); // ciphername
+        readBuffer(); // kdfname
+        readBuffer(); // kdfoptions
+        pos += 4; // numKeys をスキップ
+        readBuffer(); // 公開鍵blob
+        const privBlob = readBuffer();
+        const pView = new DataView(privBlob.buffer, privBlob.byteOffset, privBlob.byteLength);
+        let bPos = 0;
+        const readBlobBuffer = () => {
+            const len = pView.getUint32(bPos);
+            bPos += 4;
+            const data = privBlob.subarray(bPos, bPos + len);
+            bPos += len;
+            return data;
+        };
+        bPos += 8; // check1, check2 をスキップ
+        readBlobBuffer(); // key type ("ssh-rsa")
+        const n = this.bytesToBigInt(readBlobBuffer());
+        const e = this.bytesToBigInt(readBlobBuffer());
+        const d = this.bytesToBigInt(readBlobBuffer());
+        const qInv = this.bytesToBigInt(readBlobBuffer());
+        const p = this.bytesToBigInt(readBlobBuffer());
+        const q = this.bytesToBigInt(readBlobBuffer());
+        const dp = d % (p - 1n);
+        const dq = d % (q - 1n);
+        const kN = BigInt(this.bitLength(n));
+        const kP = BigInt(this.bitLength(p));
+        const kQ = BigInt(this.bitLength(q));
+        const muN = (1n << (kN * 2n)) / n;
+        const muP = (1n << (kP * 2n)) / p;
+        const muQ = (1n << (kQ * 2n)) / q;
+        return {
+            n,
+            e,
+            d,
+            p,
+            q,
+            dp,
+            dq,
+            qInv,
+            muN,
+            muP,
+            muQ,
+            nShift: kN * 2n,
+            pShift: kP * 2n,
+            qShift: kQ * 2n,
+        };
+    }
+    bytesToBigInt(bytes) {
+        const len = bytes.length;
+        let res = 0n;
+        const view = new DataView(bytes.buffer, bytes.byteOffset, len);
+        let i = 0;
+        for (; i <= len - 8; i += 8) {
+            res = (res << 64n) + view.getBigUint64(i);
+        }
+        for (; i < len; i++) {
+            res = (res << 8n) + BigInt(bytes[i]);
+        }
+        return res;
+    }
+    generateLargePrime(bits) {
+        const byteLen = bits / 8;
+        const uint8 = new Uint8Array(byteLen);
+        const min = 1n << BigInt(bits - 1);
+        const e = 65537n;
+        while (true) {
+            globalThis.crypto.getRandomValues(uint8);
+            let p = this.bytesToBigInt(uint8) | 1n | min;
+            const remainders = new Int32Array(this.smallPrimes.length);
+            for (let j = 0; j < this.smallPrimes.length; j++) {
+                remainders[j] = Number(p % BigInt(this.smallPrimes[j]));
+            }
+            for (let step = 0; step < 2000; step++) {
+                let isComposite = false;
+                for (let j = 0; j < this.smallPrimes.length; j++) {
+                    if (remainders[j] === 0) {
+                        isComposite = true;
+                        break;
+                    }
+                }
+                if (!isComposite && (p - 1n) % e !== 0n) {
+                    if (this.isProbablyPrime(p, 1)) {
+                        if (this.isProbablyPrime(p, 4)) {
+                            return p;
+                        }
+                    }
+                }
+                p += 2n;
+                for (let j = 0; j < this.smallPrimes.length; j++) {
+                    const pj = this.smallPrimes[j];
+                    let r = remainders[j] + 2;
+                    if (r >= pj) {
+                        r -= pj;
+                    }
+                    remainders[j] = r;
+                }
+            }
+        }
+    }
+    async generateRSAKeyPair(bits) {
+        const e = 65537n;
+        const half = bits / 2;
+        const [p, q] = await Promise.all([
+            this.generateLargePrimeWorker(half),
+            this.generateLargePrimeWorker(half),
+        ]);
+        if (!p || !q) {
+            throw new Error("大きな素数の生成に失敗しました");
+        }
+        const diff = p > q ? p - q : q - p;
+        // 2048ビット(bits=2048)なら、差が 2^(1024 - 100) くらいは欲しい
+        const minDiff = 1n << (BigInt(half) - 100n);
+        if (diff < minDiff) {
+            return this.generateRSAKeyPair(bits);
+        }
+        const n = p * q;
+        const phi = (p - 1n) * (q - 1n);
+        if (this.gcd(e, phi) === 1n) {
+            const d = this.getPrivateKeyD(e, phi);
+            const dp = d % (p - 1n);
+            const dq = d % (q - 1n);
+            const qInv = this.getPrivateKeyD(q, p);
+            const kN = BigInt(this.bitLength(n));
+            const kP = BigInt(this.bitLength(p));
+            const kQ = BigInt(this.bitLength(q));
+            const muN = (1n << (kN * 2n)) / n;
+            const muP = (1n << (kP * 2n)) / p;
+            const muQ = (1n << (kQ * 2n)) / q;
+            return {
+                n,
+                e,
+                d,
+                p,
+                q,
+                phi,
+                dp,
+                dq,
+                qInv,
+                muN,
+                muP,
+                muQ,
+                nShift: kN * 2n,
+                pShift: kP * 2n,
+                qShift: kQ * 2n,
+            };
+        }
+        return this.generateRSAKeyPair(bits);
+    }
+    async generateLargePrimeWorker(bits) {
+        return new Promise((resolve) => {
+            let worker;
+            try {
+                worker = new Worker("./prime-worker.js");
+            }
+            catch {
+                return resolve(this.generateLargePrime(bits));
+            }
+            let resolved = false;
+            worker.onmessage = (e) => {
+                if (resolved)
+                    return;
+                if (e.data.error) {
+                    resolved = true;
+                    worker.terminate();
+                    resolve(this.generateLargePrime(bits));
+                }
+                else {
+                    resolved = true;
+                    const prime = BigInt(e.data.prime);
+                    worker.terminate();
+                    resolve(prime);
+                }
+            };
+            worker.onerror = () => {
+                if (resolved)
+                    return;
+                resolved = true;
+                worker.terminate();
+                resolve(this.generateLargePrime(bits));
+            };
+            worker.postMessage({ bits });
+        });
+    }
+    bigintToUint8Array(n, size) {
+        if (n === 0n) {
+            return size ? new Uint8Array(size) : new Uint8Array([0]);
+        }
+        const bitLength = this.bitLength(n);
+        const minByteLength = (bitLength + 7) >> 3;
+        if (size === undefined) {
+            const u8 = new Uint8Array(minByteLength);
+            let tempN = n;
+            for (let i = minByteLength - 1; i >= 0; i--) {
+                u8[i] = Number(tempN & 0xffn);
+                tempN >>= 8n;
+            }
+            return u8;
+        }
+        if (minByteLength > size) {
+            throw new Error(`数値が大きすぎます: ${minByteLength}バイト必要、${size}バイト指定`);
+        }
+        const u8 = new Uint8Array(size);
+        let tempN = n;
+        for (let i = size - 1; i >= size - minByteLength; i--) {
+            u8[i] = Number(tempN & 0xffn);
+            tempN >>= 8n;
+        }
+        return u8;
+    }
+    exportToPem(n, e, d, p, q) {
+        const dmp1 = d % (p - 1n);
+        const dmq1 = d % (q - 1n);
+        const coeff = this.getPrivateKeyD(q, p);
+        const values = [0n, n, e, d, p, q, dmp1, dmq1, coeff];
+        const derElements = values.map((val) => this.encodeDerInteger(this.bigintToUint8Array(val)));
+        const pkcs1Key = this.encodeDerSequence(derElements);
+        const algorithmIdentifier = new Uint8Array([
+            0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01,
+            0x01, 0x05, 0x00,
+        ]);
+        const pkcs8Key = this.encodeDerSequence([
+            this.encodeDerInteger(this.bigintToUint8Array(0n)),
+            algorithmIdentifier,
+            new Uint8Array([
+                0x04,
+                ...this.encodeDerLength(pkcs1Key.length),
+                ...pkcs1Key,
+            ]),
+        ]);
+        const base64 = this.bytesToBase64(pkcs8Key);
+        const formattedBase64 = base64.match(/.{1,64}/g)?.join("\n");
+        return `-----BEGIN PRIVATE KEY-----\n${formattedBase64}\n-----END PRIVATE KEY-----`;
+    }
+    PublicKeyPem(n, e) {
+        const rsaPubKey = this.encodeDerSequence([
+            this.encodeDerInteger(this.bigintToUint8Array(n)),
+            this.encodeDerInteger(this.bigintToUint8Array(e)),
+        ]);
+        const algorithmIdentifier = new Uint8Array([
+            0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01,
+            0x01, 0x05, 0x00,
+        ]);
+        const spki = this.encodeDerSequence([
+            algorithmIdentifier,
+            this.encodeDerBitString(rsaPubKey),
+        ]);
+        const base64 = this.bytesToBase64(spki);
+        return `-----BEGIN PUBLIC KEY-----\n${base64.match(/.{1,64}/g)?.join("\n")}\n-----END PUBLIC KEY-----`;
+    }
+    bytesToBase64(bytes) {
+        let binary = "";
+        const len = bytes.length;
+        const chunkSize = 8192;
+        for (let i = 0; i < len; i += chunkSize) {
+            const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+            binary += String.fromCharCode(...chunk);
+        }
+        return btoa(binary);
+    }
+    base64ToBytes(b64) {
+        const binString = atob(b64);
+        const len = binString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binString.charCodeAt(i);
+        }
+        return bytes;
+    }
+    getPrivateKeyD(e, phi) {
+        let r0 = phi, r1 = e;
+        let x0 = 0n, x1 = 1n;
+        while (r1 !== 0n) {
+            const q = r0 / r1;
+            const r = r0 - q * r1;
+            r0 = r1;
+            r1 = r;
+            const tmp = x0 - q * x1;
+            x0 = x1;
+            x1 = tmp;
+        }
+        return x0 < 0n ? x0 + phi : x0;
+    }
+    gcd(a, b) {
+        while (b !== 0n) {
+            let t = b;
+            b = a % b;
+            a = t;
+        }
+        return a;
+    }
+    rnd(n) {
+        const bitLength = this.bitLength(n);
+        const byteLength = (bitLength + 7) >> 3;
+        const uint8 = new Uint8Array(byteLength);
+        while (true) {
+            globalThis.crypto.getRandomValues(uint8);
+            const num = this.bytesToBigInt(uint8) & ((1n << BigInt(bitLength)) - 1n);
+            if (num > 0n && num < n)
+                return num;
+        }
+    }
+    isProbablyPrime(n, k = 15) {
+        if (n <= 3n)
+            return n > 1n;
+        if (!(n & 1n))
+            return false;
+        for (let j = 0; j < this.smallPrimes.length; j++) {
+            const p = this.smallPrimes[j];
+            if (n === BigInt(p))
+                return true;
+            if (n < BigInt(p) * BigInt(p))
+                break;
+            if (n % BigInt(p) === 0n)
+                return false;
+        }
+        let d = n - 1n;
+        let s = 0;
+        while (!(d & 1n)) {
+            d >>= 1n;
+            s++;
+        }
+        const nm1 = n - 1n;
+        const bases = [2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n];
+        // Miller-Rabin用のmu計算
+        const kN = BigInt(this.bitLength(n));
+        const muN = (1n << (kN * 2n)) / n;
+        const nShift = kN * 2n;
+        for (let i = 0; i < k; i++) {
+            const a = i < bases.length ? bases[i] : this.rnd(nm1);
+            let x = this.modExpAsync(a, d, n, muN, nShift);
+            if (x === 1n || x === nm1)
+                continue;
+            let composite = true;
+            for (let r = 1; r < s; r++) {
+                x = this.modExpAsync(x, 2n, n, muN, nShift);
+                if (x === nm1) {
+                    composite = false;
+                    break;
+                }
+                if (x === 1n)
+                    return false;
+            }
+            if (composite)
+                return false;
+        }
+        return true;
+    }
+    encodeDerInteger(bytes) {
+        let start = 0;
+        while (start < bytes.length - 1 && bytes[start] === 0) {
+            start++;
+        }
+        const trimmedLen = bytes.length - start;
+        const needsPadding = bytes[start] >= 0x80;
+        const payloadLen = needsPadding ? trimmedLen + 1 : trimmedLen;
+        const lenBytes = this.encodeDerLength(payloadLen);
+        const result = new Uint8Array(1 + lenBytes.length + payloadLen);
+        let offset = 0;
+        result[offset++] = 0x02;
+        result.set(lenBytes, offset);
+        offset += lenBytes.length;
+        if (needsPadding) {
+            result[offset++] = 0x00;
+        }
+        result.set(bytes.subarray(start), offset);
+        return result;
+    }
+    encodeDerSequence(elements) {
+        const totalLength = elements.reduce((acc, el) => acc + el.length, 0);
+        const body = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const el of elements) {
+            body.set(el, offset);
+            offset += el.length;
+        }
+        const length = this.encodeDerLength(body.length);
+        const res = new Uint8Array(1 + length.length + body.length);
+        res[0] = 0x30;
+        res.set(length, 1);
+        res.set(body, 1 + length.length);
+        return res;
+    }
+    encodeDerBitString(bytes) {
+        return new Uint8Array([
+            0x03,
+            ...this.encodeDerLength(bytes.length + 1),
+            0x00,
+            ...bytes,
+        ]);
+    }
+    encodeDerLength(len) {
+        if (len <= 127)
+            return new Uint8Array([len]);
+        let bytesNeeded = 0;
+        if (len >= 0x1000000)
+            bytesNeeded = 4;
+        else if (len >= 0x10000)
+            bytesNeeded = 3;
+        else if (len >= 0x100)
+            bytesNeeded = 2;
+        else
+            bytesNeeded = 1;
+        const res = new Uint8Array(bytesNeeded + 1);
+        res[0] = 0x80 | bytesNeeded;
+        let t = len;
+        for (let i = bytesNeeded; i >= 1; i--) {
+            res[i] = t & 0xff;
+            t >>= 8;
+        }
+        return res;
+    }
+}

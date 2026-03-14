@@ -577,14 +577,20 @@ export class ecsh {
     } while (r >= max);
     return r;
   }
-  public deriveKey(masterPrivHex: string, domain: string): {privatekey: string, publickey: string} {
-  const masterBytes = this.BigintToBytes(this.hexToBigInt(masterPrivHex));
-  const domainBytes = new TextEncoder().encode(domain);
-  const h = this.hmacSha256(masterBytes, domainBytes);
-  const d = this.bytesToBigInt(h) % this.N;
-  if (d === 0n) throw new Error("派生鍵がゼロになった");
-  return { privatekey: this.bigintToHex(d), publickey: this.privateKeyToPublicKey(this.bigintToHex(d)).compressed };
-}
+  public deriveKey(
+    masterPrivHex: string,
+    domain: string,
+  ): { privatekey: string; publickey: string } {
+    const masterBytes = this.BigintToBytes(this.hexToBigInt(masterPrivHex));
+    const domainBytes = new TextEncoder().encode(domain);
+    const h = this.hmacSha256(masterBytes, domainBytes);
+    const d = this.bytesToBigInt(h) % this.N;
+    if (d === 0n) throw new Error("派生鍵がゼロになった");
+    return {
+      privatekey: this.bigintToHex(d),
+      publickey: this.privateKeyToPublicKey(this.bigintToHex(d)).compressed,
+    };
+  }
 }
 
 (() => {
