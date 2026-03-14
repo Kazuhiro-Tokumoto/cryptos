@@ -1,13 +1,13 @@
 import { PointPairSchnorrP256Wasm } from "./ecdsa_wasm_wrapper.mjs";
 
 const dsa = new PointPairSchnorrP256Wasm();
-await dsa.ready; // WASMロード完了を待つ
+await dsa.ready;
 
-const encoder = new TextEncoder();
-const message = encoder.encode("Hello, ECDSA!");
-
+const msg = new TextEncoder().encode("Hello, ECDSA!");
 const { privateKey, publicKey } = dsa.generateKeyPair();
-const sig = dsa.sign(message, privateKey);
-console.log     ("Signature:", sig);
-const ok  = dsa.verify(message, publicKey, sig);
-console.log("Verification:", ok); // true
+const sig = dsa.sign(msg, privateKey);
+
+console.log("pub len", publicKey.length, publicKey[0].length, publicKey[1].length);
+console.log("sig len", sig.length, sig.map((x) => x.length));
+
+console.log("ok", dsa.verify(msg, publicKey, sig));
