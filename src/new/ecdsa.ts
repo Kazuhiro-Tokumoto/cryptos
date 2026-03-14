@@ -1,4 +1,4 @@
-export class mynewecdsa {
+export class PointPairSchnorrP256 {
   private readonly P =
     0xffffffff00000001000000000000000000000000ffffffffffffffffffffffffn;
   private readonly N =
@@ -498,7 +498,7 @@ function printStats(label: string, s: ReturnType<typeof stats>) {
   console.log(`  stddev : ${fmt(s.stddev)}`);
 }
 
-const dsa = new mynewecdsa();
+const dsa = new PointPairSchnorrP256();
 const encoder = new TextEncoder();
 const message = encoder.encode("Hello, ECDSA!");
 const ITERATIONS = 10000;
