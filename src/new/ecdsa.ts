@@ -203,15 +203,15 @@ export class PointPairSchnorrP256 {
     const Rj: [bigint, bigint, bigint] = [R[0], R[1], 1n];
     const Yj: [bigint, bigint, bigint] = [pubKeyBigint[0], pubKeyBigint[1], 1n];
     const right = this.addPointsJacobian(this.addPointsJacobian(Rj, Yj), eG);
-const Z1sq = (sg[2] * sg[2]) % this.P;
-const Z2sq = (right[2] * right[2]) % this.P;
-const Z1cu = (Z1sq * sg[2]) % this.P;
-const Z2cu = (Z2sq * right[2]) % this.P;
+    const Z1sq = (sg[2] * sg[2]) % this.P;
+    const Z2sq = (right[2] * right[2]) % this.P;
+    const Z1cu = (Z1sq * sg[2]) % this.P;
+    const Z2cu = (Z2sq * right[2]) % this.P;
 
-return (
-  (sg[0] * Z2sq) % this.P === (right[0] * Z1sq) % this.P &&
-  (sg[1] * Z2cu) % this.P === (right[1] * Z1cu) % this.P
-);
+    return (
+      (sg[0] * Z2sq) % this.P === (right[0] * Z1sq) % this.P &&
+      (sg[1] * Z2cu) % this.P === (right[1] * Z1cu) % this.P
+    );
   }
 
   public generateKeyPair(): {
