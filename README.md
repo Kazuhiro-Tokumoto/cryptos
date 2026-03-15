@@ -61,13 +61,13 @@ Given a group element $P \in \mathbb{G}$, find $a \in \mathbb{Z}_n$ such that $P
 
 ### 3.1 Key Generation $\text{KeyGen}(1^\lambda)$
 
-$$x \overset{\$}{\leftarrow} \mathbb{Z}_n, \quad Y = xG$$
+$$x \stackrel{R}{\leftarrow} \mathbb{Z}_n, \quad Y = xG$$
 
 Secret key: $x$. Public key: $Y$.
 
 ### 3.2 Signing $\text{Sign}(x, m)$
 
-1. $k \overset{\$}{\leftarrow} \mathbb{Z}_n$ (generated deterministically per RFC 6979)
+1. $k \stackrel{R}{\leftarrow} \mathbb{Z}_n$ (generated deterministically per RFC 6979)
 2. $R \leftarrow kG$
 3. $e \leftarrow H(R \| Y \| m)$
 4. $s \leftarrow (k + x) \cdot e^{-1} \pmod{n}$
