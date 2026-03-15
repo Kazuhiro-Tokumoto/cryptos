@@ -179,10 +179,19 @@ export class PointPairSchnorrP256 {
           ),
         ),
       ) % this.N;
-
+    const tBytes = this.sha256(
+      this.concat(
+        this.BigintToBytes(R[0]),
+        this.BigintToBytes(R[1]),
+        this.BigintToBytes(pubKeyBigint[0]),
+        this.BigintToBytes(pubKeyBigint[1]),
+        this.BigintToBytes(e),
+      ),
+    );
+    const t = this.bytesToBigInt(tBytes) % this.N;
+    if (t === 0n) throw new Error("t==0, retry");
     if (e === 0n) throw new Error("e==0, retry");
-
-    const s = ((k + privKeyBigint) * this.inv(e, this.N)) % this.N;
+    const s = ((k + privKeyBigint + t) * this.inv(e, this.N)) % this.N;
 
     return [
       this.BigintToBytes(R[0]),
@@ -201,12 +210,11 @@ export class PointPairSchnorrP256 {
       this.bytesToBigInt(pubKey[0]),
       this.bytesToBigInt(pubKey[1]),
     ];
+
     const R: [bigint, bigint] = [
       this.bytesToBigInt(signature[0]),
       this.bytesToBigInt(signature[1]),
     ];
-    if (!this.isPointOnCurve(pubKeyBigint)) return false;
-    if (!this.isPointOnCurve(R)) return false;
     const e =
       this.bytesToBigInt(
         this.sha256(
@@ -219,11 +227,24 @@ export class PointPairSchnorrP256 {
           ),
         ),
       ) % this.N;
+    const tBytes = this.sha256(
+      this.concat(
+        this.BigintToBytes(R[0]),
+        this.BigintToBytes(R[1]),
+        this.BigintToBytes(pubKeyBigint[0]),
+        this.BigintToBytes(pubKeyBigint[1]),
+        this.BigintToBytes(e),
+      ),
+    );
+    const t = this.bytesToBigInt(tBytes) % this.N;
+    const tg = this.scalarMultGJac(t);
+    if (!this.isPointOnCurve(pubKeyBigint)) return false;
+    if (!this.isPointOnCurve(R)) return false;
     const s = (this.bytesToBigInt(signature[2]) * e) % this.N;
     const sg = this.scalarMultGJac(s);
     const Rj: [bigint, bigint, bigint] = [R[0], R[1], 1n];
     const Yj: [bigint, bigint, bigint] = [pubKeyBigint[0], pubKeyBigint[1], 1n];
-    const right = this.addPointsJacobian(Rj, Yj);
+    const right = this.addPointsJacobian(this.addPointsJacobian(Rj, Yj), tg);
     const left = sg;
 
     return this.equalsJacobian(left, right);
