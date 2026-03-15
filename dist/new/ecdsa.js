@@ -133,10 +133,11 @@ export class PointPairSchnorrP256 {
         const mB = this.BigintToBytes(message);
         const xB = this.BigintToBytes(privKey);
         const k = this.generateK(mB, xB);
-        const R = this.scalarMultG(k);
+        const R = this.scalarMultGJac(k);
         const RxB = this.BigintToBytes(R[0]);
         const RyB = this.BigintToBytes(R[1]);
-        const e = this.bytesToBigInt(this.sha256(this.concat(RxB, RyB, mB))) % this.N;
+        const RzB = this.BigintToBytes(R[2]);
+        const e = this.bytesToBigInt(this.sha256(this.concat(RxB, RyB, RzB, mB))) % this.N;
         if (e === 0n)
             throw new Error("e==0, retry");
         const s = ((k + privKey) * this.inv(e, this.N)) % this.N;
@@ -149,6 +150,7 @@ export class PointPairSchnorrP256 {
         return [
             this.BigintToBytes(R[0]),
             this.BigintToBytes(R[1]),
+            this.BigintToBytes(R[2]),
             this.BigintToBytes(s),
         ];
     }
@@ -161,15 +163,14 @@ export class PointPairSchnorrP256 {
         const R = [
             this.bytesToBigInt(signature[0]),
             this.bytesToBigInt(signature[1]),
+            this.bytesToBigInt(signature[2]),
         ];
         if (!this.isPointOnCurve(pubKeyBigint))
             return false;
-        if (!this.isPointOnCurve(R))
-            return false;
-        const e = this.bytesToBigInt(this.sha256(this.concat(this.BigintToBytes(R[0]), this.BigintToBytes(R[1]), message))) % this.N;
-        const s = (this.bytesToBigInt(signature[2]) * e) % this.N;
+        const e = this.bytesToBigInt(this.sha256(this.concat(this.BigintToBytes(R[0]), this.BigintToBytes(R[1]), this.BigintToBytes(R[2]), this.BigintToBytes(messageBigint)))) % this.N;
+        const s = (this.bytesToBigInt(signature[3]) * e) % this.N;
         const sg = this.scalarMultGJac(s);
-        const Rj = [R[0], R[1], 1n];
+        const Rj = [R[0], R[1], R[2]];
         const Yj = [pubKeyBigint[0], pubKeyBigint[1], 1n];
         const right = this.addPointsJacobian(Rj, Yj);
         const left = sg;
@@ -348,10 +349,11 @@ export class PointPairSchnorrP256 {
         return out;
     }
     BigintToBytes(n) {
-        const hex = n.toString(16).toUpperCase().padStart(64, "0");
         const b = new Uint8Array(32);
-        for (let i = 0; i < 32; i++)
-            b[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+        for (let i = 31; i >= 0; i--) {
+            b[i] = Number(n & 0xffn);
+            n >>= 8n;
+        }
         return b;
     }
     bytesToBigInt(bytes) {
@@ -435,7 +437,7 @@ async function test() {
     const dsa = new PointPairSchnorrP256();
     const encoder = new TextEncoder();
     const message = encoder.encode("Hello, ECDSA!");
-    const ITERATIONS = 1;
+    const ITERATIONS = 5000;
     const { privateKey, publicKey } = dsa.generateKeyPair();
     const signature = dsa.sign(message, privateKey);
     // ================================================================

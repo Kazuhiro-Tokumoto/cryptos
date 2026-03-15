@@ -434,13 +434,14 @@ export class PointPairSchnorrP256 {
     return out;
   }
 
-  private BigintToBytes(n: bigint): Uint8Array {
-    const hex = n.toString(16).toUpperCase().padStart(64, "0");
-    const b = new Uint8Array(32);
-    for (let i = 0; i < 32; i++)
-      b[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-    return b;
+private BigintToBytes(n: bigint): Uint8Array {
+  const b = new Uint8Array(32);
+  for (let i = 31; i >= 0; i--) {
+    b[i] = Number(n & 0xffn);
+    n >>= 8n;
   }
+  return b;
+}
 
   private bytesToBigInt(bytes: Uint8Array): bigint {
     const len = bytes.length,
