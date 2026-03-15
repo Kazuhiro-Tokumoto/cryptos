@@ -129,26 +129,19 @@ export class PointPairSchnorrP256 {
             p;
         return (y * y) % p === rhs;
     }
-    signBigint(message, privKey, publickey) {
-        if (!publickey) {
-            publickey = this.scalarMultG(privKey);
-        }
-        const mB = this.BigintToBytes(message);
-        const xB = this.BigintToBytes(privKey);
-        const k = this.generateK(mB, xB);
-        const R = this.scalarMultG(k);
-        const RxB = this.BigintToBytes(R[0]);
-        const RyB = this.BigintToBytes(R[1]);
-        const e = this.bytesToBigInt(this.sha256(this.concat(RxB, RyB, this.BigintToBytes(publickey[0]), this.BigintToBytes(publickey[1]), mB))) % this.N;
-        if (e === 0n)
-            throw new Error("e==0, retry");
-        const s = ((k + privKey) * this.inv(e, this.N)) % this.N;
-        return [R, s];
-    }
     sign(message, privKey, publicKey) {
         const messageBigint = this.bytesToBigInt(message);
         const privKeyBigint = this.bytesToBigInt(privKey);
-        const [R, s] = this.signBigint(messageBigint, privKeyBigint, publicKey ? [this.bytesToBigInt(publicKey[0]), this.bytesToBigInt(publicKey[1])] : undefined);
+        const pubKeyBigint = publicKey
+            ? [this.bytesToBigInt(publicKey[0]), this.bytesToBigInt(publicKey[1])]
+            : this.scalarMultG(privKeyBigint);
+        const mB = this.BigintToBytes(messageBigint);
+        const k = this.generateK(mB, this.BigintToBytes(privKeyBigint));
+        const R = this.scalarMultG(k);
+        const e = this.bytesToBigInt(this.sha256(this.concat(this.BigintToBytes(R[0]), this.BigintToBytes(R[1]), this.BigintToBytes(pubKeyBigint[0]), this.BigintToBytes(pubKeyBigint[1]), mB))) % this.N;
+        if (e === 0n)
+            throw new Error("e==0, retry");
+        const s = ((k + privKeyBigint) * this.inv(e, this.N)) % this.N;
         return [
             this.BigintToBytes(R[0]),
             this.BigintToBytes(R[1]),

@@ -151,32 +151,6 @@ export class PointPairSchnorrP256 {
     return (y * y) % p === rhs;
   }
 
-  private signBigint(
-    message: bigint,
-    privKey: bigint,
-    publickey?: [bigint, bigint],
-  ): [[bigint, bigint], bigint] {
-    if (!publickey) {
-      publickey = this.scalarMultG(privKey);
-    }
-    const mB = this.BigintToBytes(message);
-    const xB = this.BigintToBytes(privKey);
-
-    const k = this.generateK(mB, xB);
-    const R = this.scalarMultG(k);
-
-    const RxB = this.BigintToBytes(R[0]);
-    const RyB = this.BigintToBytes(R[1]);
-
-    const e =
-      this.bytesToBigInt(this.sha256(this.concat(RxB, RyB, this.BigintToBytes(publickey[0]), this.BigintToBytes(publickey[1]), mB))) % this.N;
-
-    if (e === 0n) throw new Error("e==0, retry");
-
-    const s = ((k + privKey) * this.inv(e, this.N)) % this.N;
-    return [R, s];
-  }
-
   public sign(
     message: Uint8Array,
     privKey: Uint8Array,
@@ -184,7 +158,32 @@ export class PointPairSchnorrP256 {
   ): [Uint8Array, Uint8Array, Uint8Array] {
     const messageBigint = this.bytesToBigInt(message);
     const privKeyBigint = this.bytesToBigInt(privKey);
-    const [R, s] = this.signBigint(messageBigint, privKeyBigint, publicKey ? [this.bytesToBigInt(publicKey[0]), this.bytesToBigInt(publicKey[1])] : undefined);
+
+    const pubKeyBigint: [bigint, bigint] = publicKey
+      ? [this.bytesToBigInt(publicKey[0]), this.bytesToBigInt(publicKey[1])]
+      : this.scalarMultG(privKeyBigint);
+
+    const mB = this.BigintToBytes(messageBigint);
+    const k = this.generateK(mB, this.BigintToBytes(privKeyBigint));
+    const R = this.scalarMultG(k);
+
+    const e =
+      this.bytesToBigInt(
+        this.sha256(
+          this.concat(
+            this.BigintToBytes(R[0]),
+            this.BigintToBytes(R[1]),
+            this.BigintToBytes(pubKeyBigint[0]),
+            this.BigintToBytes(pubKeyBigint[1]),
+            mB,
+          ),
+        ),
+      ) % this.N;
+
+    if (e === 0n) throw new Error("e==0, retry");
+
+    const s = ((k + privKeyBigint) * this.inv(e, this.N)) % this.N;
+
     return [
       this.BigintToBytes(R[0]),
       this.BigintToBytes(R[1]),
@@ -245,10 +244,10 @@ export class PointPairSchnorrP256 {
     }
 
     // fast path: if one is affine
-      if (Z1 === 1n) {
+    if (Z1 === 1n) {
       const Z2Z2 = (Z2 * Z2) % p;
       const U1 = (X1 * Z2Z2) % p; // X1はAffineのxそのもの
-      const U2 = X2 % p;          // X2は比較対象のJacobian X
+      const U2 = X2 % p; // X2は比較対象のJacobian X
       if (U1 !== U2) return false;
 
       const Z2Z2Z2 = (Z2Z2 * Z2) % p;
@@ -441,14 +440,14 @@ export class PointPairSchnorrP256 {
     return out;
   }
 
-private BigintToBytes(n: bigint): Uint8Array {
-  const b = new Uint8Array(32);
-  for (let i = 31; i >= 0; i--) {
-    b[i] = Number(n & 0xffn);
-    n >>= 8n;
+  private BigintToBytes(n: bigint): Uint8Array {
+    const b = new Uint8Array(32);
+    for (let i = 31; i >= 0; i--) {
+      b[i] = Number(n & 0xffn);
+      n >>= 8n;
+    }
+    return b;
   }
-  return b;
-}
 
   private bytesToBigInt(bytes: Uint8Array): bigint {
     const len = bytes.length,
