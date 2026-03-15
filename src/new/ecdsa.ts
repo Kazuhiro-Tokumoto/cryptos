@@ -154,7 +154,11 @@ export class PointPairSchnorrP256 {
   private signBigint(
     message: bigint,
     privKey: bigint,
+    publickey?: [bigint, bigint],
   ): [[bigint, bigint], bigint] {
+    if (!publickey) {
+      publickey = this.scalarMultG(privKey);
+    }
     const mB = this.BigintToBytes(message);
     const xB = this.BigintToBytes(privKey);
 
@@ -165,7 +169,7 @@ export class PointPairSchnorrP256 {
     const RyB = this.BigintToBytes(R[1]);
 
     const e =
-      this.bytesToBigInt(this.sha256(this.concat(RxB, RyB, mB))) % this.N;
+      this.bytesToBigInt(this.sha256(this.concat(RxB, RyB, this.BigintToBytes(publickey[0]), this.BigintToBytes(publickey[1]), mB))) % this.N;
 
     if (e === 0n) throw new Error("e==0, retry");
 
@@ -176,10 +180,11 @@ export class PointPairSchnorrP256 {
   public sign(
     message: Uint8Array,
     privKey: Uint8Array,
+    publicKey?: [Uint8Array, Uint8Array],
   ): [Uint8Array, Uint8Array, Uint8Array] {
     const messageBigint = this.bytesToBigInt(message);
     const privKeyBigint = this.bytesToBigInt(privKey);
-    const [R, s] = this.signBigint(messageBigint, privKeyBigint);
+    const [R, s] = this.signBigint(messageBigint, privKeyBigint, publicKey ? [this.bytesToBigInt(publicKey[0]), this.bytesToBigInt(publicKey[1])] : undefined);
     return [
       this.BigintToBytes(R[0]),
       this.BigintToBytes(R[1]),
@@ -209,6 +214,8 @@ export class PointPairSchnorrP256 {
           this.concat(
             this.BigintToBytes(R[0]),
             this.BigintToBytes(R[1]),
+            this.BigintToBytes(pubKeyBigint[0]),
+            this.BigintToBytes(pubKeyBigint[1]),
             this.BigintToBytes(messageBigint),
           ),
         ),

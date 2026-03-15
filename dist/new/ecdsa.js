@@ -129,28 +129,29 @@ export class PointPairSchnorrP256 {
             p;
         return (y * y) % p === rhs;
     }
-    signBigint(message, privKey) {
+    signBigint(message, privKey, publickey) {
+        if (!publickey) {
+            publickey = this.scalarMultG(privKey);
+        }
         const mB = this.BigintToBytes(message);
         const xB = this.BigintToBytes(privKey);
         const k = this.generateK(mB, xB);
-        const R = this.scalarMultGJac(k);
+        const R = this.scalarMultG(k);
         const RxB = this.BigintToBytes(R[0]);
         const RyB = this.BigintToBytes(R[1]);
-        const RzB = this.BigintToBytes(R[2]);
-        const e = this.bytesToBigInt(this.sha256(this.concat(RxB, RyB, RzB, mB))) % this.N;
+        const e = this.bytesToBigInt(this.sha256(this.concat(RxB, RyB, this.BigintToBytes(publickey[0]), this.BigintToBytes(publickey[1]), mB))) % this.N;
         if (e === 0n)
             throw new Error("e==0, retry");
         const s = ((k + privKey) * this.inv(e, this.N)) % this.N;
         return [R, s];
     }
-    sign(message, privKey) {
+    sign(message, privKey, publicKey) {
         const messageBigint = this.bytesToBigInt(message);
         const privKeyBigint = this.bytesToBigInt(privKey);
-        const [R, s] = this.signBigint(messageBigint, privKeyBigint);
+        const [R, s] = this.signBigint(messageBigint, privKeyBigint, publicKey ? [this.bytesToBigInt(publicKey[0]), this.bytesToBigInt(publicKey[1])] : undefined);
         return [
             this.BigintToBytes(R[0]),
             this.BigintToBytes(R[1]),
-            this.BigintToBytes(R[2]),
             this.BigintToBytes(s),
         ];
     }
@@ -163,14 +164,15 @@ export class PointPairSchnorrP256 {
         const R = [
             this.bytesToBigInt(signature[0]),
             this.bytesToBigInt(signature[1]),
-            this.bytesToBigInt(signature[2]),
         ];
         if (!this.isPointOnCurve(pubKeyBigint))
             return false;
-        const e = this.bytesToBigInt(this.sha256(this.concat(this.BigintToBytes(R[0]), this.BigintToBytes(R[1]), this.BigintToBytes(R[2]), this.BigintToBytes(messageBigint)))) % this.N;
-        const s = (this.bytesToBigInt(signature[3]) * e) % this.N;
+        if (!this.isPointOnCurve(R))
+            return false;
+        const e = this.bytesToBigInt(this.sha256(this.concat(this.BigintToBytes(R[0]), this.BigintToBytes(R[1]), this.BigintToBytes(pubKeyBigint[0]), this.BigintToBytes(pubKeyBigint[1]), this.BigintToBytes(messageBigint)))) % this.N;
+        const s = (this.bytesToBigInt(signature[2]) * e) % this.N;
         const sg = this.scalarMultGJac(s);
-        const Rj = [R[0], R[1], R[2]];
+        const Rj = [R[0], R[1], 1n];
         const Yj = [pubKeyBigint[0], pubKeyBigint[1], 1n];
         const right = this.addPointsJacobian(Rj, Yj);
         const left = sg;
