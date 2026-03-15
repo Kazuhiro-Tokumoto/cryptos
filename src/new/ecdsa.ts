@@ -557,7 +557,7 @@ async function test() {
   const dsa = new PointPairSchnorrP256();
   const encoder = new TextEncoder();
   const message = encoder.encode("Hello, ECDSA!");
-  const ITERATIONS = 5000;
+  const ITERATIONS = 50000;
 
   const { privateKey, publicKey } = dsa.generateKeyPair();
   const signature = dsa.sign(message, privateKey);
