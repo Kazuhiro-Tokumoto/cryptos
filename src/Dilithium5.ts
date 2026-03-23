@@ -307,10 +307,13 @@ class Dilithium5 {
     18, 2, 61, 56, 14,
   ];
 
-  private readonly PI_LANES: number[] = [
-    0, 10, 7, 11, 17, 20, 4, 1, 5, 8, 15, 23, 2, 12, 18, 13, 24, 21, 16, 9, 3,
-    14, 22, 6, 19,
-  ];
+private readonly PI_LANES: number[] = [
+  0, 10, 20, 5, 15,
+  16, 1, 11, 21, 6,
+  7, 17, 2, 12, 22,
+  23, 8, 18, 3, 13,
+  14, 24, 9, 19, 4,
+];
 
   private readonly MASK64 = 0xffffffffffffffffn;
 

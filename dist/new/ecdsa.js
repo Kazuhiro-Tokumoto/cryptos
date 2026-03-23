@@ -234,8 +234,11 @@ export class PointPairSchnorrP256 {
             return false;
         const p = this.P;
         const x2 = (x * x) % p;
-        const rhs = (((x2 * x) % p) - ((3n * x) % p) +
-            0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn + 2n * p) % p;
+        const rhs = (((x2 * x) % p) -
+            ((3n * x) % p) +
+            0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604bn +
+            2n * p) %
+            p;
         return (y * y) % p === rhs;
     }
     sign(message, privKey, publicKey) {
@@ -251,15 +254,21 @@ export class PointPairSchnorrP256 {
         if (e === 0n)
             throw new Error("e==0, retry");
         const s = (k + privKeyBigint * e) % this.N;
-        return [this.BigintToBytes(R[0]), this.BigintToBytes(R[1]), this.BigintToBytes(s)];
+        return [
+            this.BigintToBytes(R[0]),
+            this.BigintToBytes(R[1]),
+            this.BigintToBytes(s),
+        ];
     }
     verify(message, pubKey, signature) {
         const messageBigint = this.bytesToBigInt(message);
         const pubKeyBigint = [
-            this.bytesToBigInt(pubKey[0]), this.bytesToBigInt(pubKey[1]),
+            this.bytesToBigInt(pubKey[0]),
+            this.bytesToBigInt(pubKey[1]),
         ];
         const R = [
-            this.bytesToBigInt(signature[0]), this.bytesToBigInt(signature[1]),
+            this.bytesToBigInt(signature[0]),
+            this.bytesToBigInt(signature[1]),
         ];
         const e = this.bytesToBigInt(this.sha256(this.concat(this.BigintToBytes(R[0]), this.BigintToBytes(R[1]), this.BigintToBytes(pubKeyBigint[0]), this.BigintToBytes(pubKeyBigint[1]), this.BigintToBytes(messageBigint)))) % this.N;
         if (e === 0n)
@@ -277,12 +286,16 @@ export class PointPairSchnorrP256 {
             return false;
         const Z2 = this.m(lhs[2] * lhs[2]);
         const Z3 = this.m(Z2 * lhs[2]);
-        return this.m(lhs[0]) === this.m(R[0] * Z2) && this.m(lhs[1]) === this.m(R[1] * Z3);
+        return (this.m(lhs[0]) === this.m(R[0] * Z2) &&
+            this.m(lhs[1]) === this.m(R[1] * Z3));
     }
     generateKeyPair() {
         const privKey = this.getRandomBigInt(this.N);
         const pubKey = this.scalarMultG(privKey);
-        return { privateKey: this.BigintToBytes(privKey), publicKey: [this.BigintToBytes(pubKey[0]), this.BigintToBytes(pubKey[1])] };
+        return {
+            privateKey: this.BigintToBytes(privKey),
+            publicKey: [this.BigintToBytes(pubKey[0]), this.BigintToBytes(pubKey[1])],
+        };
     }
     sha256(data) {
         const K = this.SHA256_K;
