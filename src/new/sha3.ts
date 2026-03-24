@@ -1,5 +1,5 @@
-class sha3{
-      private readonly KECCAK_ROUNDS = 24;
+class sha3 {
+  private readonly KECCAK_ROUNDS = 24;
   private readonly RC: bigint[] = [
     0x0000000000000001n,
     0x0000000000008082n,
@@ -32,13 +32,10 @@ class sha3{
     18, 2, 61, 56, 14,
   ];
 
-private readonly PI_LANES: number[] = [
-  0, 10, 20, 5, 15,
-  16, 1, 11, 21, 6,
-  7, 17, 2, 12, 22,
-  23, 8, 18, 3, 13,
-  14, 24, 9, 19, 4,
-];
+  private readonly PI_LANES: number[] = [
+    0, 10, 20, 5, 15, 16, 1, 11, 21, 6, 7, 17, 2, 12, 22, 23, 8, 18, 3, 13, 14,
+    24, 9, 19, 4,
+  ];
 
   private readonly MASK64 = 0xffffffffffffffffn;
 
@@ -166,7 +163,6 @@ private readonly PI_LANES: number[] = [
     this.keccakAbsorb(state, rate, input, 0x1f);
     return this.keccakSqueeze(state, rate, outLen);
   }
-
 }
 
 const sha = new sha3();
