@@ -422,9 +422,7 @@ class what_is_this {
 
     const { iv, xormessage } = safeIvMaker.call(this, message, n);
 
-
-
-    const ciphertext = this.modPow(xormessage, e, n) 
+    const ciphertext = this.modPow(xormessage, e, n);
     return { iv, ciphertext };
   }
   private decryptbigint(
@@ -437,7 +435,7 @@ class what_is_this {
       throw new Error("Invalid input range");
     }
 
-const xormessage = this.modPow(ciphertext, e, n);
+    const xormessage = this.modPow(ciphertext, e, n);
 
     // 3. 暗号化時と同じルールで IV を引き延ばす
     const nBits = n.toString(2).length;
@@ -461,10 +459,12 @@ const xormessage = this.modPow(ciphertext, e, n);
     if (n <= 1n || e <= 0n || e >= n) {
       throw new Error("Message must be in the range (0, n)");
     }
-    const signaturemessage = this.bytesToBigInt(this.sha256(this.bigIntToBytes(message)));
-    
+    const signaturemessage = this.bytesToBigInt(
+      this.sha256(this.bigIntToBytes(message)),
+    );
+
     const sign = this.modPow(signaturemessage, e, n);
-    return sign
+    return sign;
   }
   private bigIntToBytes(n: bigint, size?: number): Uint8Array {
     if (n === 0n) {
@@ -515,7 +515,7 @@ const xormessage = this.modPow(ciphertext, e, n);
     ) {
       throw new Error("Signature and message must be in the range (0, n)");
     }
-    
+
     const expectedMessage = this.modPow(signature, e, n);
     return (
       expectedMessage ===
@@ -580,7 +580,7 @@ async function main() {
   const { n, e } = rsa.generateKey(2048);
   console.timeEnd("Key generation");
 
-console.time("Encryption and decryption");
+  console.time("Encryption and decryption");
   const message = new TextEncoder().encode("Hello, RSA!");
   const a = rsa.encrypt(message, n, e);
   const decryptedMessage = rsa.decrypt(a, n, e);
