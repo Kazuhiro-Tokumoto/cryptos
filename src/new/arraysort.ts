@@ -46,7 +46,7 @@ export function dylaCleanSort(
 // ===== 動作検証用テスト =====
 
 console.log('Generating 100MB JSON...');
-const count = 1000000;
+const count = 10000000;
 const arr = [];
 for (let i = 0; i < count; i++) {
   arr.push({ id: i, name: 'User' + i, email: 'user' + i + '@example.com', score: Math.random() });
