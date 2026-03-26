@@ -45,15 +45,27 @@ export function dylaCleanSort(
 
 // ===== 動作検証用テスト =====
 
-const jsonMin = Buffer.from('{"id":101,"name":"Kazuhiro"}');
-const jsonPretty = Buffer.from(`{
-  "id": 101,
-  "name": "Kazuhiro"
-}`);
+console.log('Generating 100MB JSON...');
+const count = 1000000;
+const arr = [];
+for (let i = 0; i < count; i++) {
+  arr.push({ id: i, name: 'User' + i, email: 'user' + i + '@example.com', score: Math.random() });
+}
+const big = JSON.stringify({ users: arr });
+console.log('Size:', (big.length / 1024 / 1024).toFixed(2), 'MB');
 
-const res1 = dylaCleanSort(new Uint8Array(jsonMin));
-const res2 = dylaCleanSort(new Uint8Array(jsonPretty));
+const buf = new Uint8Array(Buffer.from(big));
 
-console.log("Minified Sort Length:", res1.length);
-console.log("Pretty   Sort Length:", res2.length);
-console.log("Match?", Buffer.compare(res1, res2) === 0 ? "YES ✅" : "NO ❌");
+// dylaCleanSort
+console.time('dylaCleanSort');
+const res1 = dylaCleanSort(buf);
+console.timeEnd('dylaCleanSort');
+
+// 普通のsort
+console.time('normalSort');
+const sorted = [...buf].sort((a, b) => a - b);
+const res2 = Buffer.from(sorted);
+console.timeEnd('normalSort');
+
+console.log('dylaCleanSort Length:', res1.length);
+console.log('normalSort Length:', res2.length);
