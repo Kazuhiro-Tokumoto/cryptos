@@ -1,4 +1,130 @@
-export class PointPairSchnorrSecp256k1 {
+class newlogin {
+  private sha256(data: Uint8Array): Uint8Array {
+    const K = new Uint32Array([
+      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+      0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+      0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+      0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+      0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+      0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+      0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+      0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+      0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+      0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+      0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ]);
+
+    const rotr = (x: number, n: number) => (x >>> n) | (x << (32 - n));
+
+    let h0 = 0x6a09e667,
+      h1 = 0xbb67ae85,
+      h2 = 0x3c6ef372,
+      h3 = 0xa54ff53a;
+    let h4 = 0x510e527f,
+      h5 = 0x9b05688c,
+      h6 = 0x1f83d9ab,
+      h7 = 0x5be0cd19;
+
+    const len = data.length;
+    const bitLen = len * 8;
+    const blockCount = Math.ceil((len + 9) / 64);
+    const blocks = new Uint8Array(blockCount * 64);
+    blocks.set(data);
+    blocks[len] = 0x80;
+    const view = new DataView(blocks.buffer);
+    view.setUint32(blocks.length - 8, Math.floor(bitLen / 0x100000000), false);
+    view.setUint32(blocks.length - 4, bitLen >>> 0, false);
+
+    for (let i = 0; i < blocks.length; i += 64) {
+      const W = new Uint32Array(64);
+      for (let t = 0; t < 16; t++) {
+        W[t] = view.getUint32(i + t * 4, false);
+      }
+      for (let t = 16; t < 64; t++) {
+        const s0 = rotr(W[t - 15], 7) ^ rotr(W[t - 15], 18) ^ (W[t - 15] >>> 3);
+        const s1 = rotr(W[t - 2], 17) ^ rotr(W[t - 2], 19) ^ (W[t - 2] >>> 10);
+        W[t] = (W[t - 16] + s0 + W[t - 7] + s1) >>> 0;
+      }
+
+      let a = h0,
+        b = h1,
+        c = h2,
+        d = h3;
+      let e = h4,
+        f = h5,
+        g = h6,
+        h = h7;
+
+      for (let t = 0; t < 64; t++) {
+        const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+        const ch = (e & f) ^ ((~e >>> 0) & g); // ✅ ~e を明示的にuint32化
+        const temp1 = (h + S1 + ch + K[t] + W[t]) >>> 0;
+        const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+        const maj = (a & b) ^ (a & c) ^ (b & c);
+        const temp2 = (S0 + maj) >>> 0;
+
+        h = g;
+        g = f;
+        f = e;
+        e = (d + temp1) >>> 0;
+        d = c;
+        c = b;
+        b = a;
+        a = (temp1 + temp2) >>> 0;
+      }
+
+      h0 = (h0 + a) >>> 0;
+      h1 = (h1 + b) >>> 0;
+      h2 = (h2 + c) >>> 0;
+      h3 = (h3 + d) >>> 0;
+      h4 = (h4 + e) >>> 0;
+      h5 = (h5 + f) >>> 0;
+      h6 = (h6 + g) >>> 0;
+      h7 = (h7 + h) >>> 0;
+    }
+
+    const result = new Uint8Array(32);
+    const rv = new DataView(result.buffer);
+    rv.setUint32(0, h0, false);
+    rv.setUint32(4, h1, false);
+    rv.setUint32(8, h2, false);
+    rv.setUint32(12, h3, false);
+    rv.setUint32(16, h4, false);
+    rv.setUint32(20, h5, false);
+    rv.setUint32(24, h6, false);
+    rv.setUint32(28, h7, false);
+    return result;
+  }
+  private stringtouint8array(str: string): Uint8Array {
+    const encoder = new TextEncoder();
+    return encoder.encode(str);
+  }
+  private stretch(iter: number, data: Uint8Array): Uint8Array {
+    for (let i = 0; i < iter; i++) {
+      data = this.sha256(data);
+    }
+    return data;
+  }
+  private uint8arraypasswordstretch(
+    iter: number,
+    password: Uint8Array,
+    salt: Uint8Array,
+  ): Uint8Array {
+    const cobined = new Uint8Array([...password, ...salt]);
+    return this.stretch(iter, cobined);
+  }
+  public passwordstretch(
+    iter: number = 1000,
+    password: string,
+    username: string,
+  ): Uint8Array {
+    const passwordBytes = this.stringtouint8array(password);
+    const saltBytes = this.stringtouint8array(username);
+    return this.uint8arraypasswordstretch(iter, passwordBytes, saltBytes);
+  }
+}
+
+class PointPairSchnorrSecp256k1 {
   private readonly P =
     0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
   private readonly N =
@@ -550,159 +676,68 @@ export class PointPairSchnorrSecp256k1 {
     return [this.BigintToBytes(pubKey[0]), this.BigintToBytes(pubKey[1])];
   }
 }
-// ============================================================
-//  統計ベンチマーク: min / max / mean / median / p95 / p99 / stddev
-// ============================================================
-async function test() {
-  function stats(samples: number[]) {
-    const sorted = [...samples].sort((a, b) => a - b);
-    const n = sorted.length;
-    const mean = samples.reduce((s, v) => s + v, 0) / n;
-    const variance = samples.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
-    const stddev = Math.sqrt(variance);
-    const pct = (p: number) => {
-      const idx = Math.ceil((p / 100) * n) - 1;
-      return sorted[Math.max(0, Math.min(n - 1, idx))];
-    };
-    return {
-      min: sorted[0],
-      p25: pct(25),
-      median: pct(50),
-      mean,
-      p75: pct(75),
-      p95: pct(95),
-      p99: pct(99),
-      max: sorted[n - 1],
-      stddev,
-    };
-  }
 
-  function fmt(v: number) {
-    return v.toFixed(4) + "ms";
-  }
 
-  function printStats(label: string, s: ReturnType<typeof stats>) {
-    console.log(`\n── ${label} ──`);
-    console.log(`  min    : ${fmt(s.min)}`);
-    console.log(`  p25    : ${fmt(s.p25)}`);
-    console.log(`  median : ${fmt(s.median)}`);
-    console.log(`  mean   : ${fmt(s.mean)}`);
-    console.log(`  p75    : ${fmt(s.p75)}`);
-    console.log(`  p95    : ${fmt(s.p95)}`);
-    console.log(`  p99    : ${fmt(s.p99)}`);
-    console.log(`  max    : ${fmt(s.max)}`);
-    console.log(`  stddev : ${fmt(s.stddev)}`);
-  }
-
-  const dsa = new PointPairSchnorrSecp256k1();
-  const encoder = new TextEncoder();
-  const message = encoder.encode("Hello, ECDSA!");
-  const ITERATIONS = 1000;
-
-  const { privateKey, publicKey } = dsa.generateKeyPair();
-  const signature = dsa.sign(message, privateKey);
-
-  // ================================================================
-  //  自作署名
-  // ================================================================
-  console.log(`\n${"=".repeat(50)}`);
-  console.log(`  自作署名  (n=${ITERATIONS.toLocaleString()})`);
-  console.log("=".repeat(50));
-
-  const selfSignSamples: number[] = [];
-  for (let i = 0; i < ITERATIONS; i++) {
-    const t0 = performance.now();
-    dsa.sign(message, privateKey);
-    selfSignSamples.push(performance.now() - t0);
-  }
-
-  const selfVerifySamples: number[] = [];
-  for (let i = 0; i < ITERATIONS; i++) {
-    const t0 = performance.now();
-    dsa.verify(message, publicKey, signature);
-    selfVerifySamples.push(performance.now() - t0);
-  }
-
-  printStats("署名", stats(selfSignSamples));
-  printStats("検証", stats(selfVerifySamples));
-
-  // ================================================================
-  //  WebCrypto ECDSA P-256
-  // ================================================================
-  console.log(`\n${"=".repeat(50)}`);
-  console.log(`  WebCrypto ECDSA P-256  (n=${ITERATIONS.toLocaleString()})`);
-  console.log("=".repeat(50));
-
-  const ecKeyPair = await crypto.subtle.generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
-    true,
-    ["sign", "verify"],
-  );
-  const ecSig = await crypto.subtle.sign(
-    { name: "ECDSA", hash: "SHA-256" },
-    ecKeyPair.privateKey,
-    message,
-  );
-
-  const ecSignSamples: number[] = [];
-  for (let i = 0; i < ITERATIONS; i++) {
-    const t0 = performance.now();
-    await crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
-      ecKeyPair.privateKey,
-      message,
-    );
-    ecSignSamples.push(performance.now() - t0);
-  }
-
-  const ecVerifySamples: number[] = [];
-  for (let i = 0; i < ITERATIONS; i++) {
-    const t0 = performance.now();
-    await crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      ecKeyPair.publicKey,
-      ecSig,
-      message,
-    );
-    ecVerifySamples.push(performance.now() - t0);
-  }
-
-  printStats("署名", stats(ecSignSamples));
-  printStats("検証", stats(ecVerifySamples));
-  // ================================================================
-  //  比率サマリ (mean ベース)
-  // ================================================================
-  const ss = stats(selfSignSamples);
-  const sv = stats(selfVerifySamples);
-  const es = stats(ecSignSamples);
-  const ev = stats(ecVerifySamples);
-
-  console.log(`\n${"=".repeat(50)}`);
-  console.log("  比率サマリ (mean ベース)");
-  console.log("=".repeat(50));
-  console.log(
-    `自作 vs WebCrypto ECDSA  署名: ${(ss.mean / es.mean).toFixed(1)}倍   検証: ${(sv.mean / ev.mean).toFixed(1)}倍`,
-  );
-}
-
-// ================================================================
-//  正当性チェック
-// ================================================================
-const dsa = new PointPairSchnorrSecp256k1();
-const encoder = new TextEncoder();
-const message = encoder.encode("Hello, ECDSA!");
-const { privateKey, publicKey } = dsa.generateKeyPair();
-console.time("sign");
-const signature = dsa.sign(message, privateKey);
-console.timeEnd("sign");
-const fakeResult = dsa.verify(
-  encoder.encode("Fake message!"),
-  publicKey,
-  signature,
+const shunoa = new PointPairSchnorrSecp256k1();
+const newlogininstance = new newlogin();
+const username = "testuser";
+const password = "password";
+console.time("Key Generation");
+const stretchedPassword = newlogininstance.passwordstretch(
+  1000,
+  password,
+  username,
 );
-console.time("verify");
-const trueResult = dsa.verify(message, publicKey, signature);
-console.timeEnd("verify");
-console.log(`\n不正署名: ${fakeResult}`);
-console.log(`正当な署名: ${trueResult}`);
-test();
+console.timeEnd("Key Generation");
+console.log(
+  "Stretched Password:",
+  Array.from(stretchedPassword)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join(""),
+);
+const { privateKey, publicKey } = {
+  privateKey: stretchedPassword,
+  publicKey: shunoa.privatekeytoPublicKey(stretchedPassword),
+};
+console.log(
+  "Private Key:",
+  Array.from(privateKey)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join(""),
+);
+console.log(
+  "Public Key X:",
+  Array.from(publicKey[0])
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join(""),
+);
+console.log(
+  "Public Key Y:",
+  Array.from(publicKey[1])
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join(""),
+);
+
+const message = new TextEncoder().encode("Hello, world!");
+const signature = shunoa.sign(message, privateKey);
+console.log(
+  "Signature R.x:",
+  Array.from(signature[0])
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join(""),
+);
+console.log(
+  "Signature R.y:",
+  Array.from(signature[1])
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join(""),
+);
+console.log(
+  "Signature s:",
+  Array.from(signature[2])
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join(""),
+);
+
+const isValid = shunoa.verify(message, publicKey, signature);
+console.log("Signature valid?", isValid);

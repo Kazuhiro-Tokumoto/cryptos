@@ -1495,29 +1495,31 @@ const key = globalThis.crypto.getRandomValues(new Uint8Array(32));
 const jwtToken = jwt.createJWT(
   "HMAC_SHA256",
   {
-	"certificate": {
-		"DYLA": [
-			{
-				"CA": "ShudoPhysicsRootCA",
-				"Order": 0,
-				"Domain": {
-					"CN": "rootCA",
-					"IsCA": true,
-					"Pubkey": "04b0781986d589cb8dcf220c50b8ea6cedd4a6a70710e310b2b221f855636ac8874d35454255acb259cee954868d4b87a5abd33370aebbe74c965d9f086141aeff",
-					"Country": "JP",
-					"State": "",
-					"City": "",
-					"IssuedAt": "2026-03-07T04:50:31Z"
-				},
-				"Sig": "7cc12349371e4bf5a14a880c5821862c54f8bdbd687d0a930a24e32982096f83d3539505b427ec4f9b90b5ac11257683702e76317699c604facea499e595a60f",
-				"Text": "",
-				"Message": "Do you like apple?",
-				"Serial": "400c621e3e7fb765edcc05f740c8840dd84bf4bbb20301a8d9cc5b1d754bc150"
-			}
-		]
-	},
-	"public": "xxxxxxxxxxxxxxxxxx"
-},
+    certificate: {
+      DYLA: [
+        {
+          CA: "ShudoPhysicsRootCA",
+          Order: 0,
+          Domain: {
+            CN: "rootCA",
+            IsCA: true,
+            Pubkey:
+              "04b0781986d589cb8dcf220c50b8ea6cedd4a6a70710e310b2b221f855636ac8874d35454255acb259cee954868d4b87a5abd33370aebbe74c965d9f086141aeff",
+            Country: "JP",
+            State: "",
+            City: "",
+            IssuedAt: "2026-03-07T04:50:31Z",
+          },
+          Sig: "7cc12349371e4bf5a14a880c5821862c54f8bdbd687d0a930a24e32982096f83d3539505b427ec4f9b90b5ac11257683702e76317699c604facea499e595a60f",
+          Text: "",
+          Message: "Do you like apple?",
+          Serial:
+            "400c621e3e7fb765edcc05f740c8840dd84bf4bbb20301a8d9cc5b1d754bc150",
+        },
+      ],
+    },
+    public: "xxxxxxxxxxxxxxxxxx",
+  },
   key,
 );
 console.log("JWT Token:", jwtToken);

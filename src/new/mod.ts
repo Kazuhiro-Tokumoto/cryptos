@@ -15,7 +15,7 @@ function modExp(base: bigint, exp: bigint, mod: bigint): bigint {
   }
 
   // Montgomery のビット長を計算
-  const r = 1n << BigInt(mod.toString(2).length);  // R = 2^k > mod
+  const r = 1n << BigInt(mod.toString(2).length); // R = 2^k > mod
   const rMask = r - 1n;
 
   // モンゴメリ逆元: mod * modInv ≡ -1 (mod R)
@@ -30,8 +30,8 @@ function modExp(base: bigint, exp: bigint, mod: bigint): bigint {
     return ((old_s % m) + m) % m;
   }
 
-  const modInv = modInverse(mod, r);  // mod^{-1} mod R
-  const rSq = (r * r) % mod;          // R^2 mod N (変換用)
+  const modInv = modInverse(mod, r); // mod^{-1} mod R
+  const rSq = (r * r) % mod; // R^2 mod N (変換用)
 
   // モンゴメリリダクション: T * R^{-1} mod N
   function montReduce(t: bigint): bigint {
@@ -42,8 +42,8 @@ function modExp(base: bigint, exp: bigint, mod: bigint): bigint {
 
   // モンゴメリ空間に変換
   base = ((base % mod) + mod) % mod;
-  let a = montReduce(base * rSq);   // base * R mod N
-  let result = montReduce(rSq);     // 1 * R mod N
+  let a = montReduce(base * rSq); // base * R mod N
+  let result = montReduce(rSq); // 1 * R mod N
 
   while (exp > 0n) {
     if (exp & 1n) result = montReduce(result * a);
@@ -60,4 +60,4 @@ const base = 2n;
 const exp = 81083750464n;
 const mod = 1000000n;
 const result = modExp(base, exp, mod);
-console.log(result)
+console.log(result);

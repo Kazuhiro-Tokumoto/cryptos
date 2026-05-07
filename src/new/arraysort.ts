@@ -45,27 +45,32 @@ export function dylaCleanSort(
 
 // ===== 動作検証用テスト =====
 
-console.log('Generating 100MB JSON...');
+console.log("Generating 100MB JSON...");
 const count = 10000000;
 const arr = [];
 for (let i = 0; i < count; i++) {
-  arr.push({ id: i, name: 'User' + i, email: 'user' + i + '@example.com', score: Math.random() });
+  arr.push({
+    id: i,
+    name: "User" + i,
+    email: "user" + i + "@example.com",
+    score: Math.random(),
+  });
 }
 const big = JSON.stringify({ users: arr });
-console.log('Size:', (big.length / 1024 / 1024).toFixed(2), 'MB');
+console.log("Size:", (big.length / 1024 / 1024).toFixed(2), "MB");
 
 const buf = new Uint8Array(Buffer.from(big));
 
 // dylaCleanSort
-console.time('dylaCleanSort');
+console.time("dylaCleanSort");
 const res1 = dylaCleanSort(buf);
-console.timeEnd('dylaCleanSort');
+console.timeEnd("dylaCleanSort");
 
 // 普通のsort
-console.time('normalSort');
+console.time("normalSort");
 const sorted = [...buf].sort((a, b) => a - b);
 const res2 = Buffer.from(sorted);
-console.timeEnd('normalSort');
+console.timeEnd("normalSort");
 
-console.log('dylaCleanSort Length:', res1.length);
-console.log('normalSort Length:', res2.length);
+console.log("dylaCleanSort Length:", res1.length);
+console.log("normalSort Length:", res2.length);
