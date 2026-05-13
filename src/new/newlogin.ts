@@ -122,6 +122,17 @@ class newlogin {
     const saltBytes = this.stringtouint8array(username);
     return this.uint8arraypasswordstretch(iter, passwordBytes, saltBytes);
   }
+  private uint8arraytohex(a:Uint8Array):string{
+    return   Array.from(a)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+  }
+  private hextobigint(hex:string):bigint{
+    return BigInt("0x"+hex)
+  }
+  private uint8arraytobigint(array:Uint8Array):bigint{
+    return this.hextobigint(this.uint8arraytohex(array))
+  }
 }
 
 class PointPairSchnorrSecp256k1 {
