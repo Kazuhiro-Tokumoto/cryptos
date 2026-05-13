@@ -688,11 +688,23 @@ class PointPairSchnorrSecp256k1 {
   }
 }
 
+function filterByBytes(text: string): boolean {
+  const NG_BYTES: number[] = [0x0a, 0x0d, 0x20]; // LF, CR, Space
+  const bytes = new TextEncoder().encode(text);
+  return !bytes.some((b) => NG_BYTES.includes(b));
+}
+
 
 const shunoa = new PointPairSchnorrSecp256k1();
 const newlogininstance = new newlogin();
-const username = "testuser";
-const password = "password";
+const username = "Kyoren_So";
+const password = "serikaserikaserikaserika";
+if (!filterByBytes(username) || !filterByBytes(password)) {
+  console.error("Username or password contains invalid characters.");
+  throw new Error("Invalid input");
+}
+console.log ("Username:", username); 
+console.log ("Password:", password);
 console.time("Key Generation");
 const stretchedPassword = newlogininstance.passwordstretch(
   1000,
